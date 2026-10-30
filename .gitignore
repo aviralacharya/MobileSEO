@@ -1,0 +1,105 @@
+# ---------------------------------------------------------------------------
+# Flutter / Dart
+# ---------------------------------------------------------------------------
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+/build/
+/coverage/
+**/doc/api/
+.flutter-plugins
+.flutter-plugins-dependencies
+/widgetbook/
+.widget_preview/
+
+# Generated Dart sources (build_runner)
+*.g.dart
+*.freezed.dart
+*.config.dart
+*.mocks.dart
+*.gr.dart
+
+# Symbolication / obfuscation
+app.*.symbols
+app.*.map.json
+
+# ---------------------------------------------------------------------------
+# IDE / editors
+# ---------------------------------------------------------------------------
+.idea/
+*.iml
+*.ipr
+*.iws
+.history/
+.atom/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ---------------------------------------------------------------------------
+# Android
+# ---------------------------------------------------------------------------
+/android/.gradle/
+/android/captures/
+/android/local.properties
+/android/key.properties
+/android/app/debug/
+/android/app/profile/
+/android/app/release/
+/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+*.jks
+*.keystore
+*.aab
+*.apk
+
+# ---------------------------------------------------------------------------
+# iOS / macOS
+# ---------------------------------------------------------------------------
+/ios/Pods/
+/ios/.symlinks/
+/ios/Flutter/Flutter.framework
+/ios/Flutter/Flutter.podspec
+/ios/Flutter/ephemeral/
+/ios/Flutter/Generated.xcconfig
+/ios/Flutter/flutter_export_environment.sh
+/ios/Flutter/.last_build_id
+/ios/Runner/GeneratedPluginRegistrant.h
+/ios/Runner/GeneratedPluginRegistrant.m
+**/Flutter/ephemeral/
+/macos/Pods/
+xcuserdata/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+
+# ---------------------------------------------------------------------------
+# Web / Windows / Linux build output
+# ---------------------------------------------------------------------------
+/web/.dart_tool/
+/windows/flutter/ephemeral/
+/linux/flutter/ephemeral/
+
+# ---------------------------------------------------------------------------
+# Secrets and environment files (never publish these)
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx
+secrets.json
+.env.local
+
+# ---------------------------------------------------------------------------
+# OS noise
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+*.class
+*.pyc
+.svn/
+migrate_working_dir/
