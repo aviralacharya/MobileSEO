@@ -10,6 +10,9 @@ const _html = '''
   <head>
     <title>  Example  Site  </title>
     <meta name="description" content="A short page about SEO.">
+    <meta property="og:title" content="Example Site">
+    <meta property="og:description" content="A short page about SEO.">
+    <meta property="og:image" content="https://example.com/preview.png">
     <script type="application/ld+json">
       {"@context":"https://schema.org","@type":"WebSite","name":"Example"}
     </script>
@@ -43,6 +46,11 @@ void main() {
     expect(snapshot.metaDescription, 'A short page about SEO.');
     expect(snapshot.hasSchemaMarkup, isTrue);
     expect(snapshot.schemaTypes, ['WebSite']);
+
+    // Open Graph tags are extracted alongside the regular SEO fields.
+    expect(snapshot.openGraph.isComplete, isTrue);
+    expect(snapshot.openGraph.title, 'Example Site');
+    expect(snapshot.openGraph.image, 'https://example.com/preview.png');
 
     // Document order, tag names preserved, whitespace collapsed.
     expect(

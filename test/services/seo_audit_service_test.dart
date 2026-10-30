@@ -90,4 +90,18 @@ void main() {
 
     expect(result.schemaTypes, ['LocalBusiness']);
   });
+
+  test('passes Open Graph tags through to the result', () {
+    final result = service.analyze(_page(
+      '<html><head>'
+      '<meta property="og:title" content="Example">'
+      '<meta property="og:description" content="A description">'
+      '<meta property="og:image" content="https://example.com/i.png">'
+      '</head><body><h1>Hi</h1></body></html>',
+    ));
+
+    expect(result.openGraph.isComplete, isTrue);
+    expect(result.openGraph.title, 'Example');
+    expect(result.openGraph.image, 'https://example.com/i.png');
+  });
 }

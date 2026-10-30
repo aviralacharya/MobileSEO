@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:html/dom.dart' as dom;
 
 import 'image_seo_checker.dart';
+import 'link_checker.dart';
+import 'open_graph_checker.dart';
 import 'seo_scraper_service.dart';
 
 /// One heading found on the page, e.g. `HeadingTag(tag: 'h1', text: 'Pricing')`.
@@ -28,6 +30,8 @@ class SeoSnapshot {
     this.hasSchemaMarkup = false,
     this.schemaTypes = const [],
     this.imageReport = const ImageSeoReport.empty(),
+    this.openGraph = const OpenGraphReport.empty(),
+    this.linkAudit = const LinkAudit.empty(),
     this.error,
     this.errorKind,
   });
@@ -39,7 +43,9 @@ class SeoSnapshot {
         headings = const [],
         hasSchemaMarkup = false,
         schemaTypes = const [],
-        imageReport = const ImageSeoReport.empty();
+        imageReport = const ImageSeoReport.empty(),
+        openGraph = const OpenGraphReport.empty(),
+        linkAudit = const LinkAudit.empty();
 
   /// Final URL after redirects (or the raw input if fetching failed).
   final String url;
@@ -57,6 +63,12 @@ class SeoSnapshot {
 
   /// Alt-text coverage for every `<img>` on the page.
   final ImageSeoReport imageReport;
+
+  /// Open Graph tags used for social link previews.
+  final OpenGraphReport openGraph;
+
+  /// Anchor counts, shown in the Technical & Links tab.
+  final LinkAudit linkAudit;
 
   /// Human-readable failure reason, or `null` on success.
   final String? error;
@@ -98,6 +110,8 @@ class SeoSnapshot {
       hasSchemaMarkup: schemaScripts.isNotEmpty,
       schemaTypes: _schemaTypes(document),
       imageReport: checkImageSeo(document),
+      openGraph: checkOpenGraph(document),
+      linkAudit: checkLinks(document, page.uri),
     );
   }
 }

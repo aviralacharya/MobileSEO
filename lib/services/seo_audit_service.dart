@@ -1,4 +1,6 @@
 import 'image_seo_checker.dart';
+import 'link_checker.dart';
+import 'open_graph_checker.dart';
 import 'seo_extractor.dart';
 import 'seo_scraper_service.dart';
 
@@ -32,6 +34,8 @@ class SeoAuditResult {
     required this.h3Count,
     required this.schemaTypes,
     required this.imageReport,
+    required this.openGraph,
+    required this.linkAudit,
     required this.checks,
   });
 
@@ -44,6 +48,8 @@ class SeoAuditResult {
   final int h3Count;
   final List<String> schemaTypes;
   final ImageSeoReport imageReport;
+  final OpenGraphReport openGraph;
+  final LinkAudit linkAudit;
   final List<AuditCheck> checks;
 
   bool get hasSchema => schemaTypes.isNotEmpty;
@@ -51,10 +57,27 @@ class SeoAuditResult {
   int get passedCount =>
       checks.where((check) => check.status == AuditStatus.good).length;
 
-  int get score {
+  /// Every check that did not pass, in report order.
+  List<AuditCheck> get failedChecks =>
+      checks.where((check) => check.status == AuditStatus.warning).toList();
+
+  int get failedCount => checks.length - passedCount;
+
+  /// The score as measured, i.e. with no fixes applied.
+  int get score => scoreWithFixes(0);
+
+  /// Score if [fixedChecks] of the failing items were resolved.
+  ///
+  /// Used by the interactive checklist to preview how much each fix is worth
+  /// without pretending the site has actually changed.
+  int scoreWithFixes(int fixedChecks) {
     if (checks.isEmpty) return 0;
-    return ((passedCount / checks.length) * 100).round();
+    final resolved = passedCount + fixedChecks.clamp(0, failedCount);
+    return ((resolved / checks.length) * 100).round();
   }
+
+  /// Points a single fix is currently worth.
+  int get pointsPerFix => scoreWithFixes(1) - score;
 }
 
 /// Turns scraped data into an [SeoAuditResult] with pass/warn checks.
@@ -107,6 +130,8 @@ class SeoAuditService {
       h3Count: h3,
       schemaTypes: snapshot.schemaTypes,
       imageReport: snapshot.imageReport,
+      openGraph: snapshot.openGraph,
+      linkAudit: snapshot.linkAudit,
       checks: checks,
     );
   }
