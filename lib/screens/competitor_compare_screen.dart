@@ -2,442 +2,431 @@ import 'package:flutter/material.dart';
 
 import '../services/seo_audit_service.dart';
 import '../services/seo_scraper_service.dart';
+import '../services/site_files_checker.dart';
 import '../utils/url_validator.dart';
 import '../widgets/app_widgets.dart';
 import '../widgets/audit_cards.dart';
-import '../widgets/score_gauge.dart';
+import 'legal_pages.dart';
 
-/// Tab 3 of the shell: audit a second URL and compare it with the loaded page.
 class CompetitorCompareScreen extends StatefulWidget {
   const CompetitorCompareScreen({
     super.key,
     required this.result,
     required this.onGoToAudit,
   });
-
-  /// The page audited on the dashboard, or `null` before any audit.
   final SeoAuditResult? result;
   final VoidCallback onGoToAudit;
-
   @override
   State<CompetitorCompareScreen> createState() =>
       _CompetitorCompareScreenState();
 }
 
 class _CompetitorCompareScreenState extends State<CompetitorCompareScreen> {
-  static const SeoAuditService _auditService = SeoAuditService();
-
-  final TextEditingController _controller = TextEditingController();
-
-  bool _isLoading = false;
-  String? _urlError;
-  String? _errorMessage;
-  SeoAuditResult? _competitor;
+  static const _audit = SeoAuditService();
+  final _yourUrl = TextEditingController();
+  final _competitorUrl = TextEditingController();
+  final _files = SiteFilesChecker();
+  SeoAuditResult? _your, _competitor;
+  SiteFilesReport? _yourFiles, _competitorFiles;
+  String? _error;
+  bool _loading = false;
 
   @override
-  void didUpdateWidget(CompetitorCompareScreen oldWidget) {
+  void initState() {
+    super.initState();
+    if (widget.result != null) _yourUrl.text = widget.result!.url;
+  }
+
+  @override
+  void didUpdateWidget(covariant CompetitorCompareScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // A new base audit invalidates the comparison.
     if (oldWidget.result?.url != widget.result?.url) {
+      _your = null;
       _competitor = null;
-      _errorMessage = null;
+      _yourFiles = null;
+      _competitorFiles = null;
+      if (widget.result != null) _yourUrl.text = widget.result!.url;
     }
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _yourUrl.dispose();
+    _competitorUrl.dispose();
+    _files.close();
     super.dispose();
   }
 
   Future<void> _compare() async {
-    if (_isLoading) return;
-
-    final validation = UrlValidator.validate(_controller.text);
-    if (!validation.isValid) {
-      setState(() {
-        _urlError = validation.message;
-        _errorMessage = null;
-      });
+    if (_loading) return;
+    final a = UrlValidator.validate(_yourUrl.text),
+        b = UrlValidator.validate(_competitorUrl.text);
+    if (!a.isValid || !b.isValid) {
+      setState(
+        () => _error = !a.isValid
+            ? 'Your website: ${a.message}'
+            : 'Competitor: ${b.message}',
+      );
       return;
     }
-
     FocusScope.of(context).unfocus();
     setState(() {
-      _isLoading = true;
-      _urlError = null;
-      _errorMessage = null;
+      _loading = true;
+      _error = null;
     });
-
     try {
-      final competitor = await _auditService.audit(validation.uri!.toString());
-      if (!mounted) return;
-      setState(() => _competitor = competitor);
-    } on SeoScrapeException catch (error) {
-      if (!mounted) return;
-      setState(() => _errorMessage = error.userMessage);
-    } catch (_) {
+      final pages = await Future.wait([
+        _audit.audit(a.uri!.toString()),
+        _audit.audit(b.uri!.toString()),
+      ]);
+      final files = await Future.wait([
+        _files.check(a.uri!),
+        _files.check(b.uri!),
+      ]);
       if (!mounted) return;
       setState(() {
-        _errorMessage = 'Something went wrong while auditing that page.';
+        _your = pages[0];
+        _competitor = pages[1];
+        _yourFiles = files[0];
+        _competitorFiles = files[1];
       });
+    } catch (e) {
+      if (mounted) {
+        setState(
+          () => _error = e is SeoScrapeException ? e.userMessage : 'Could not compare these websites. Check both URLs and try again.',
+        );
+      }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) {
-    final base = widget.result;
-
-    return Scaffold(
-      appBar: AppBar(
-        toolbarHeight: 78,
-        titleSpacing: 20,
-        title: const BrandTitle(
-          title: 'Competitor Compare',
-          icon: Icons.compare_arrows_rounded,
-        ),
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      actions: const [ThemeModeToggle(), LegalMenuButton()],
+      title: const BrandTitle(
+        title: 'Competitor Compare',
+        icon: Icons.compare_arrows_rounded,
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 780),
-              child: base == null
-                  ? MessageCard(
-                      icon: Icons.compare_arrows_rounded,
-                      title: 'Audit a page first',
-                      message: 'Comparison runs the same six checks against a '
-                          'second URL, so start with the page you care about.',
-                      action: FilledButton.icon(
-                        onPressed: widget.onGoToAudit,
-                        icon: const Icon(Icons.insights_rounded, size: 18),
-                        label: const Text('Go to Audit Dashboard'),
-                      ),
-                    )
-                  : Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _compareForm(context, base),
-                        if (_isLoading) ...[
-                          const SizedBox(height: 16),
-                          const LoadingCard(
-                            message: 'Auditing the competitor page…',
-                          ),
-                        ],
-                        if (_errorMessage != null) ...[
-                          const SizedBox(height: 16),
-                          ErrorCard(message: _errorMessage!),
-                        ],
-                        if (_competitor != null) ...[
-                          const SizedBox(height: 16),
-                          _ScoreComparisonCard(
-                            base: base,
-                            competitor: _competitor!,
-                          ),
-                          const SizedBox(height: 16),
-                          _CheckMatrixCard(base: base, competitor: _competitor!),
-                        ],
-                      ],
-                    ),
+    ),
+    body: SafeArea(
+      child: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          SectionCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Head-to-head comparison',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _yourUrl,
+                  keyboardType: TextInputType.url,
+                  decoration: const InputDecoration(
+                    labelText: 'Your Website URL',
+                    hintText: 'https://example.com',
+                    prefixIcon: Icon(Icons.public),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _competitorUrl,
+                  keyboardType: TextInputType.url,
+                  decoration: const InputDecoration(
+                    labelText: 'Competitor URL',
+                    hintText: 'https://competitor.com',
+                    prefixIcon: Icon(Icons.travel_explore),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: _loading ? null : _compare,
+                  icon: const Icon(Icons.compare_arrows),
+                  label: Text(_loading ? 'Comparing…' : 'Compare Websites'),
+                ),
+              ],
             ),
           ),
-        ),
+          if (_loading)
+            const Padding(
+              padding: EdgeInsets.all(20),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: ErrorCard(message: _error!),
+            ),
+          if (_your != null &&
+              _competitor != null &&
+              _yourFiles != null &&
+              _competitorFiles != null) ...[
+            const SizedBox(height: 16),
+            _Results(
+              y: _your!,
+              c: _competitor!,
+              yf: _yourFiles!,
+              cf: _competitorFiles!,
+            ),
+          ],
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
 
-  Widget _compareForm(BuildContext context, SeoAuditResult base) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
+class _Results extends StatelessWidget {
+  const _Results({
+    required this.y,
+    required this.c,
+    required this.yf,
+    required this.cf,
+  });
+  final SeoAuditResult y, c;
+  final SiteFilesReport yf, cf;
+  @override
+  Widget build(BuildContext context) => SectionCard(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Comparison results',
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                Uri.tryParse(y.url)?.host ?? y.url,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+            Expanded(
+              child: Text(
+                Uri.tryParse(c.url)?.host ?? c.url,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.end,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        _CompareRow(
+          context,
+          'Overall SEO score',
+          y.score,
+          c.score,
+          max: 100,
+          suffix: '/100',
+        ),
+        _CompareRow(
+          context,
+          'Title length',
+          y.title?.length ?? 0,
+          c.title?.length ?? 0,
+          max: 60,
+          suffix: ' chars',
+        ),
+        _CompareRow(
+          context,
+          'Description length',
+          y.description?.length ?? 0,
+          c.description?.length ?? 0,
+          max: 160,
+          suffix: ' chars',
+        ),
+        _CompareRow(
+          context,
+          'H1 headings',
+          y.h1Count,
+          c.h1Count,
+          max: _max(y.h1Count, c.h1Count),
+        ),
+        _CompareRow(
+          context,
+          'H2 headings',
+          y.h2Count,
+          c.h2Count,
+          max: _max(y.h2Count, c.h2Count),
+        ),
+        _CompareRow(
+          context,
+          'H3 headings',
+          y.h3Count,
+          c.h3Count,
+          max: _max(y.h3Count, c.h3Count),
+        ),
+        _CompareRow(
+          context,
+          'Images / missing alt',
+          y.imageReport.totalImages,
+          c.imageReport.totalImages,
+          detailA: '${y.imageReport.missingAltCount} missing alt',
+          detailB: '${c.imageReport.missingAltCount} missing alt',
+          max: _max(y.imageReport.totalImages, c.imageReport.totalImages),
+        ),
+        _CompareRow(
+          context,
+          'Schema markup',
+          y.hasSchema ? 1 : 0,
+          c.hasSchema ? 1 : 0,
+          labelA: y.hasSchema ? 'Present' : 'Missing',
+          labelB: c.hasSchema ? 'Present' : 'Missing',
+          max: 1,
+        ),
+        _CompareRow(
+          context,
+          'Robots.txt',
+          yf.robots.passed ? 1 : 0,
+          cf.robots.passed ? 1 : 0,
+          labelA: yf.robots.passed ? 'Found' : 'Missing',
+          labelB: cf.robots.passed ? 'Found' : 'Missing',
+          max: 1,
+        ),
+        _CompareRow(
+          context,
+          'Sitemap.xml',
+          yf.sitemap.passed ? 1 : 0,
+          cf.sitemap.passed ? 1 : 0,
+          labelA: yf.sitemap.passed ? 'Found' : 'Missing',
+          labelB: cf.sitemap.passed ? 'Found' : 'Missing',
+          max: 1,
+        ),
+      ],
+    ),
+  );
+  static int _max(int a, int b) => a > b
+      ? a
+      : b == 0
+      ? 1
+      : b;
+}
 
-    return SectionCard(
+class _CompareRow extends StatelessWidget {
+  const _CompareRow(
+    BuildContext context,
+    this.label,
+    this.a,
+    this.b, {
+    required this.max,
+    this.suffix = '',
+    this.labelA,
+    this.labelB,
+    this.detailA,
+    this.detailB,
+  });
+  final String label;
+  final int a, b, max;
+  final String suffix;
+  final String? labelA, labelB, detailA, detailB;
+  @override
+  Widget build(BuildContext context) {
+    final green = Theme.of(context).colorScheme.primary;
+    final aWins = a > b, bWins = b > a;
+    final av = labelA ?? '$a$suffix', bv = labelB ?? '$b$suffix';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 9),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            'Compare against',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Baseline: ${base.url}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 14),
-          TextField(
-            controller: _controller,
-            keyboardType: TextInputType.url,
-            textInputAction: TextInputAction.go,
-            autocorrect: false,
-            enableSuggestions: false,
-            onChanged: (_) {
-              if (_urlError != null) setState(() => _urlError = null);
-            },
-            onSubmitted: (_) => _compare(),
-            decoration: InputDecoration(
-              hintText: 'https://competitor.com',
-              prefixIcon: const Icon(Icons.public_rounded),
-              errorText: _urlError,
-              errorMaxLines: 2,
-            ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            height: 48,
-            child: FilledButton.tonalIcon(
-              onPressed: _isLoading ? null : _compare,
-              icon: const Icon(Icons.compare_arrows_rounded, size: 20),
-              label: const Text('Run comparison'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ScoreComparisonCard extends StatelessWidget {
-  const _ScoreComparisonCard({required this.base, required this.competitor});
-
-  final SeoAuditResult base;
-  final SeoAuditResult competitor;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final diff = base.score - competitor.score;
-
-    final summary = diff == 0
-        ? 'Both pages score ${base.score} out of 100.'
-        : diff > 0
-            ? 'This page scores $diff points higher.'
-            : 'The competitor scores ${-diff} points higher.';
-
-    final better = diff >= 0;
-
-    return SectionCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+          Text(label, style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 5),
           Row(
             children: [
-              const IconBubble(icon: Icons.bar_chart_rounded),
-              const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Score comparison',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
+                  av,
+                  style: TextStyle(
+                    color: aWins ? green : null,
+                    fontWeight: aWins ? FontWeight.bold : null,
                   ),
                 ),
               ),
-              StatusChip(
-                status:
-                    better ? AuditStatus.good : AuditStatus.warning,
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: _ScoreTile(
-                  label: 'This page',
-                  url: base.url,
-                  score: base.score,
-                  highlighted: true,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _ScoreTile(
-                  label: 'Competitor',
-                  url: competitor.url,
-                  score: competitor.score,
-                  highlighted: false,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              summary,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ScoreTile extends StatelessWidget {
-  const _ScoreTile({
-    required this.label,
-    required this.url,
-    required this.score,
-    required this.highlighted,
-  });
-
-  final String label;
-  final String url;
-  final int score;
-  final bool highlighted;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final band = ScoreBand.of(score);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-      decoration: BoxDecoration(
-        color: highlighted
-            ? scheme.primaryContainer.withValues(alpha: 0.45)
-            : scheme.surfaceContainerHighest.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        children: [
-          Text(
-            label,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-              letterSpacing: 0.6,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '$score',
-            style: theme.textTheme.displaySmall?.copyWith(
-              fontWeight: FontWeight.w800,
-              color: band.color(context),
-              height: 1,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            Uri.tryParse(url)?.host ?? url,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CheckMatrixCard extends StatelessWidget {
-  const _CheckMatrixCard({required this.base, required this.competitor});
-
-  final SeoAuditResult base;
-  final SeoAuditResult competitor;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final rows = base.checks.length;
-
-    return SectionCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const IconBubble(icon: Icons.fact_check_rounded),
-              const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Check by check',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
+                  bv,
+                  textAlign: TextAlign.end,
+                  style: TextStyle(
+                    color: bWins ? green : null,
+                    fontWeight: bWins ? FontWeight.bold : null,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              const Expanded(child: SizedBox()),
-              SizedBox(
-                width: 74,
-                child: Text(
-                  'This page',
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-              SizedBox(
-                width: 74,
-                child: Text(
-                  'Theirs',
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          for (var i = 0; i < rows; i++) ...[
-            const Divider(height: 18),
+          if (detailA != null || detailB != null)
             Row(
               children: [
                 Expanded(
                   child: Text(
-                    base.checks[i].label,
-                    style: theme.textTheme.bodySmall,
+                    detailA ?? '',
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
-                SizedBox(
-                  width: 74,
-                  child: Center(
-                    child: PassFailChip(
-                      passed: base.checks[i].status == AuditStatus.good,
-                    ),
-                  ),
-                ),
-                SizedBox(
-                  width: 74,
-                  child: Center(
-                    child: PassFailChip(
-                      passed: competitor.checks[i].status == AuditStatus.good,
-                    ),
+                Expanded(
+                  child: Text(
+                    detailB ?? '',
+                    textAlign: TextAlign.end,
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
               ],
             ),
-          ],
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Expanded(
+                child: _CompareBar(
+                  value: (a / max).clamp(0, 1).toDouble(),
+                  color: aWins ? green : null,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _CompareBar(
+                  value: (b / max).clamp(0, 1).toDouble(),
+                  color: bWins ? green : null,
+                ),
+              ),
+            ],
+          ),
         ],
+      ),
+    );
+  }
+}
+
+/// Bar that eases to its new value instead of snapping when results load.
+class _CompareBar extends StatelessWidget {
+  const _CompareBar({required this.value, this.color});
+
+  final double value;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: value),
+      duration: reduceMotion
+          ? Duration.zero
+          : const Duration(milliseconds: 420),
+      curve: Curves.easeOutCubic,
+      builder: (context, animated, _) => LinearProgressIndicator(
+        value: animated,
+        color: color,
+        minHeight: 5,
+        borderRadius: BorderRadius.circular(4),
       ),
     );
   }

@@ -15,16 +15,35 @@ class OpenGraphTag {
 
 /// Open Graph metadata used for social link previews.
 class OpenGraphReport {
-  const OpenGraphReport({this.title, this.description, this.image});
+  const OpenGraphReport({
+    this.title,
+    this.description,
+    this.image,
+    this.url,
+    this.twitterCard,
+    this.twitterTitle,
+    this.twitterDescription,
+    this.twitterImage,
+  });
 
   const OpenGraphReport.empty()
-      : title = null,
-        description = null,
-        image = null;
+    : title = null,
+      description = null,
+      image = null,
+      url = null,
+      twitterCard = null,
+      twitterTitle = null,
+      twitterDescription = null,
+      twitterImage = null;
 
   final String? title;
   final String? description;
   final String? image;
+  final String? url;
+  final String? twitterCard;
+  final String? twitterTitle;
+  final String? twitterDescription;
+  final String? twitterImage;
 
   static const int tagCount = 3;
 
@@ -38,10 +57,10 @@ class OpenGraphReport {
 
   /// The three tags in display order, missing ones included.
   List<OpenGraphTag> get tags => List.unmodifiable([
-        OpenGraphTag(property: 'og:title', value: title),
-        OpenGraphTag(property: 'og:description', value: description),
-        OpenGraphTag(property: 'og:image', value: image),
-      ]);
+    OpenGraphTag(property: 'og:title', value: title),
+    OpenGraphTag(property: 'og:description', value: description),
+    OpenGraphTag(property: 'og:image', value: image),
+  ]);
 }
 
 /// Extracts `og:title`, `og:description` and `og:image` from [document].
@@ -53,8 +72,7 @@ OpenGraphReport checkOpenGraph(dom.Document document) {
   final values = <String, String>{};
 
   for (final meta in document.querySelectorAll('meta')) {
-    final rawKey =
-        meta.attributes['property'] ?? meta.attributes['name'] ?? '';
+    final rawKey = meta.attributes['property'] ?? meta.attributes['name'] ?? '';
     final key = rawKey.trim().toLowerCase();
     if (!values.containsKey(key) && _tracked.contains(key)) {
       final content = meta.attributes['content']?.trim();
@@ -68,7 +86,21 @@ OpenGraphReport checkOpenGraph(dom.Document document) {
     title: values['og:title'],
     description: values['og:description'],
     image: values['og:image'],
+    url: values['og:url'],
+    twitterCard: values['twitter:card'],
+    twitterTitle: values['twitter:title'],
+    twitterDescription: values['twitter:description'],
+    twitterImage: values['twitter:image'],
   );
 }
 
-const Set<String> _tracked = {'og:title', 'og:description', 'og:image'};
+const Set<String> _tracked = {
+  'og:title',
+  'og:description',
+  'og:image',
+  'og:url',
+  'twitter:card',
+  'twitter:title',
+  'twitter:description',
+  'twitter:image',
+};

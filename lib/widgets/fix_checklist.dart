@@ -39,7 +39,8 @@ class FixChecklist extends StatelessWidget {
       return MessageCard(
         icon: Icons.task_alt_rounded,
         title: 'Nothing to fix',
-        message: 'Every check passed on this page. Keep an eye on it as the '
+        message:
+            'Every check passed on this page. Keep an eye on it as the '
             'content changes.',
         tone: goodColor,
       );
@@ -72,7 +73,7 @@ class FixChecklist extends StatelessWidget {
             checked.isEmpty
                 ? 'Tick an issue to preview how your score improves.'
                 : '${checked.length} of ${fixes.length} issues marked as fixed '
-                    '— preview only, the live site is unchanged.',
+                      '— preview only, the live site is unchanged.',
             style: theme.textTheme.bodySmall?.copyWith(
               color: scheme.onSurfaceVariant,
               height: 1.4,
@@ -125,25 +126,26 @@ class _FixTile extends StatelessWidget {
     final goodColor = StatusPalette.of(context, AuditStatus.good).color;
     final accent = isChecked ? goodColor : scheme.outlineVariant;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: isChecked
-            ? goodColor.withValues(alpha: 0.08)
-            : scheme.surfaceContainerHighest.withValues(alpha: 0.35),
+    // Material (not a decorated Container) so the tile's background and ink
+    // splashes stay visible, as Flutter asserts for decorated ListTile parents.
+    return Material(
+      color: isChecked
+          ? goodColor.withValues(alpha: 0.08)
+          : scheme.surfaceContainerHighest.withValues(alpha: 0.35),
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
+        side: BorderSide(
           color: accent.withValues(alpha: isChecked ? 0.45 : 0.7),
         ),
       ),
+      clipBehavior: Clip.antiAlias,
       child: CheckboxListTile(
         value: isChecked,
         onChanged: (_) => onChanged(),
         controlAffinity: ListTileControlAffinity.leading,
         contentPadding: const EdgeInsets.only(left: 4, right: 12, top: 2),
         visualDensity: VisualDensity.compact,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         checkboxShape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(6),
         ),
@@ -170,8 +172,8 @@ class _FixTile extends StatelessWidget {
         secondary: isChecked
             ? Icon(Icons.check_circle_rounded, color: goodColor, size: 20)
             : points > 0
-                ? _CountBadge(label: '+$points pts', color: scheme.primary)
-                : null,
+            ? _CountBadge(label: '+$points pts', color: scheme.primary)
+            : null,
       ),
     );
   }

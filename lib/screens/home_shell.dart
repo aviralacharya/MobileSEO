@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../services/seo_audit_service.dart';
+import '../services/audit_history_service.dart';
 import '../services/seo_extractor.dart';
 import '../services/seo_scraper_service.dart';
 import '../services/site_files_checker.dart';
 import '../utils/url_validator.dart';
+import '../widgets/app_sheet.dart';
+import '../widgets/audit_history_widgets.dart';
 import 'audit_dashboard_screen.dart';
 import 'competitor_compare_screen.dart';
 import 'serp_preview_screen.dart';
@@ -21,6 +25,9 @@ class _HomeShellState extends State<HomeShell> {
   final TextEditingController _urlController = TextEditingController();
   final SiteFilesChecker _siteFilesChecker = SiteFilesChecker();
   static const SeoAuditService _auditService = SeoAuditService();
+  final AuditHistoryService _historyService = AuditHistoryService();
+  final PageController _pageController = PageController();
+  List<AuditHistoryEntry> _history = const [];
 
   /// Labels of the checklist items ticked in the Overview tab.
   final Set<String> _checkedFixes = <String>{};
@@ -35,7 +42,51 @@ class _HomeShellState extends State<HomeShell> {
   SiteFilesReport? _siteFiles;
 
   @override
+  void initState() {
+    super.initState();
+    _loadHistory();
+  }
+
+  Future<void> _loadHistory() async {
+    try {
+      final items = await _historyService.load();
+      if (mounted) setState(() => _history = items);
+    } catch (_) {}
+  }
+
+  Future<void> _openHistory() async {
+    final picked = await AppSheet.show<AuditHistoryEntry>(
+      context: context,
+      builder: (context) => SizedBox(
+        height: MediaQuery.sizeOf(context).height * .78,
+        child: AuditHistoryList(
+          entries: _history,
+          onDelete: (id) async {
+            final items = await _historyService.delete(id);
+            if (mounted) setState(() => _history = items);
+            return items;
+          },
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _result = picked.result;
+      _siteFiles = picked.siteFiles;
+      _urlController.text = picked.result.url;
+      _destination = 0;
+      _tabIndex = 0;
+      _errorMessage = null;
+      _errorKind = null;
+      _urlError = null;
+      _checkedFixes.clear();
+    });
+    if (_pageController.hasClients) _pageController.jumpToPage(0);
+  }
+
+  @override
   void dispose() {
+    _pageController.dispose();
     _urlController.dispose();
     _siteFilesChecker.close();
     super.dispose();
@@ -45,6 +96,13 @@ class _HomeShellState extends State<HomeShell> {
     if (index == _destination) return;
     FocusScope.of(context).unfocus();
     setState(() => _destination = index);
+    if (_pageController.hasClients) {
+      _pageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+      );
+    }
   }
 
   Future<void> _runAudit() async {
@@ -97,13 +155,20 @@ class _HomeShellState extends State<HomeShell> {
 
       final siteFiles = await filesFuture;
       if (!mounted) return;
-
+      final audited = _auditService.analyzeSnapshot(snapshot);
       setState(() {
-        _result = _auditService.analyzeSnapshot(snapshot);
+        _result = audited;
         _siteFiles = siteFiles;
         _errorMessage = null;
         _errorKind = null;
       });
+      try {
+        final items = await _historyService.add(audited, siteFiles);
+        if (mounted) setState(() => _history = items);
+      } catch (error) {
+        debugPrint('Could not save history: $error');
+      }
+      HapticFeedback.mediumImpact();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -149,6 +214,7 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   void _toggleFix(String label) {
+    HapticFeedback.lightImpact();
     setState(() {
       if (!_checkedFixes.remove(label)) {
         _checkedFixes.add(label);
@@ -159,37 +225,55 @@ class _HomeShellState extends State<HomeShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: switch (_destination) {
-        0 => AuditDashboardScreen(
-            urlController: _urlController,
-            isLoading: _isLoading,
-            urlError: _urlError,
-            errorMessage: _errorMessage,
-            canRetry: _isRetryable(_errorKind),
-            result: _result,
-            siteFiles: _siteFiles,
-            checkedFixes: _checkedFixes,
-            tabIndex: _tabIndex,
-            onRun: _runAudit,
-            onRetry: _runAudit,
-            onUrlEdited: () {
-              if (_urlError != null) setState(() => _urlError = null);
-            },
-            onToggleFix: _toggleFix,
-            onResetFixes: () => setState(_checkedFixes.clear),
-            onTabChanged: (index) {
-              if (index != _tabIndex) setState(() => _tabIndex = index);
-            },
+      body: PageView(
+        controller: _pageController,
+        physics: const NeverScrollableScrollPhysics(),
+        onPageChanged: (index) {
+          if (index != _destination) setState(() => _destination = index);
+        },
+        children: [
+          _KeepAlivePage(
+            enabled: _destination == 0,
+            child: AuditDashboardScreen(
+              urlController: _urlController,
+              isLoading: _isLoading,
+              urlError: _urlError,
+              errorMessage: _errorMessage,
+              canRetry: _isRetryable(_errorKind),
+              result: _result,
+              siteFiles: _siteFiles,
+              checkedFixes: _checkedFixes,
+              tabIndex: _tabIndex,
+              onRun: _runAudit,
+              history: _history,
+              onOpenHistory: _openHistory,
+              onRetry: _runAudit,
+              onUrlEdited: () {
+                if (_urlError != null) setState(() => _urlError = null);
+              },
+              onToggleFix: _toggleFix,
+              onResetFixes: () => setState(_checkedFixes.clear),
+              onTabChanged: (index) {
+                if (index != _tabIndex) setState(() => _tabIndex = index);
+              },
+            ),
           ),
-        1 => SerpPreviewScreen(
-            result: _result,
-            onGoToAudit: () => _selectDestination(0),
+          _KeepAlivePage(
+            enabled: _destination == 1,
+            child: SerpPreviewScreen(
+              result: _result,
+              onGoToAudit: () => _selectDestination(0),
+            ),
           ),
-        _ => CompetitorCompareScreen(
-            result: _result,
-            onGoToAudit: () => _selectDestination(0),
+          _KeepAlivePage(
+            enabled: _destination == 2,
+            child: CompetitorCompareScreen(
+              result: _result,
+              onGoToAudit: () => _selectDestination(0),
+            ),
           ),
-      },
+        ],
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _destination,
         onDestinationSelected: _selectDestination,
@@ -212,5 +296,29 @@ class _HomeShellState extends State<HomeShell> {
         ],
       ),
     );
+  }
+}
+
+/// Keeps a destination alive while it is off-screen and pauses its tickers so
+/// background shimmer/gauge animations do not keep repainting.
+class _KeepAlivePage extends StatefulWidget {
+  const _KeepAlivePage({required this.child, required this.enabled});
+
+  final Widget child;
+  final bool enabled;
+
+  @override
+  State<_KeepAlivePage> createState() => _KeepAlivePageState();
+}
+
+class _KeepAlivePageState extends State<_KeepAlivePage>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return TickerMode(enabled: widget.enabled, child: widget.child);
   }
 }

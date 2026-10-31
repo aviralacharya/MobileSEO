@@ -82,54 +82,66 @@ class ScoreGauge extends StatelessWidget {
 
     return Semantics(
       label: 'SEO health score $clamped out of 100',
-      child: SizedBox(
-        width: size,
-        height: size,
-        child: TweenAnimationBuilder<double>(
-          tween: Tween<double>(begin: 0, end: clamped / 100),
-          duration: duration,
-          curve: Curves.easeOutCubic,
-          builder: (context, value, _) {
-            final band = ScoreBand.of((value * 100).round());
-            final color = band.color(context);
+      child: RepaintBoundary(
+        child: SizedBox(
+          width: size,
+          height: size,
+          child: TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: 0, end: clamped / 100),
+            duration: MediaQuery.disableAnimationsOf(context)
+                ? Duration.zero
+                : duration,
+            curve: Curves.easeOutCubic,
+            builder: (context, value, _) {
+              final band = ScoreBand.of((value * 100).round());
+              final color = band.color(context);
 
-            return Stack(
-              alignment: Alignment.center,
-              children: [
-                Positioned.fill(
-                  child: CustomPaint(
-                    painter: _GaugePainter(
-                      value: value,
-                      color: color,
-                      trackColor: scheme.surfaceContainerHighest,
+              return Stack(
+                alignment: Alignment.center,
+                children: [
+                  Positioned.fill(
+                    child: CustomPaint(
+                      painter: _GaugePainter(
+                        value: value,
+                        color: color,
+                        trackColor: scheme.surfaceContainerHighest,
+                      ),
                     ),
                   ),
-                ),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '${(value * 100).round()}',
-                      style: theme.textTheme.displaySmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        height: 1,
-                        color: scheme.onSurface,
+                  Padding(
+                    padding: EdgeInsets.all(size * 0.2),
+                    // Keeps the number readable inside the ring even at large
+                    // accessibility text scales instead of overflowing.
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '${(value * 100).round()}',
+                            style: theme.textTheme.displaySmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              height: 1,
+                              color: scheme.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'OF 100',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                              letterSpacing: 1.4,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'OF 100',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                        letterSpacing: 1.4,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            );
-          },
+                  ),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );
@@ -174,8 +186,13 @@ class _GaugePainter extends CustomPainter {
 
     canvas.drawArc(rect, _start, _sweep, false, track);
     if (value > 0) {
-      canvas.drawArc(rect, _start, _sweep * value.clamp(0.0, 1.0), false,
-          progress);
+      canvas.drawArc(
+        rect,
+        _start,
+        _sweep * value.clamp(0.0, 1.0),
+        false,
+        progress,
+      );
     }
   }
 

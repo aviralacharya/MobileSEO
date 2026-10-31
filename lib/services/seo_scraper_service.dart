@@ -16,6 +16,7 @@ enum SeoErrorKind {
   notFound,
   serverError,
   network,
+  corsBlocked,
   notHtml,
   tooLarge,
   empty,
@@ -55,6 +56,8 @@ class SeoScrapeException implements Exception {
             'Try again in a moment.';
       case SeoErrorKind.network:
         return 'Could not reach the site. Check your internet connection.';
+      case SeoErrorKind.corsBlocked:
+        return 'This site blocks browser based audits (CORS). Run MobileSEO on Android or iOS, or connect a server side fetch service for web audits.';
       case SeoErrorKind.notHtml:
         return 'That link does not return an HTML page, so there is nothing '
             'to audit.';
@@ -81,12 +84,16 @@ class ScrapedPage {
     required this.uri,
     required this.document,
     required this.statusCode,
+    this.responseHeaders = const {},
+    this.responseTimeMs = 0,
   });
 
   /// Final URL after any redirects.
   final Uri uri;
   final dom.Document document;
   final int statusCode;
+  final Map<String, String> responseHeaders;
+  final int responseTimeMs;
 
   String? get title {
     final text = document.querySelector('title')?.text.trim();
@@ -94,8 +101,9 @@ class ScrapedPage {
   }
 
   String? get metaDescription {
-    final content =
-        document.querySelector('meta[name="description"]')?.attributes['content'];
+    final content = document
+        .querySelector('meta[name="description"]')
+        ?.attributes['content'];
     final trimmed = content?.trim();
     return (trimmed == null || trimmed.isEmpty) ? null : trimmed;
   }
@@ -111,11 +119,8 @@ class SeoScraperService {
     http.Client? client,
     this.timeout = const Duration(seconds: 15),
     this.maxBodyBytes = 10 * 1024 * 1024,
-  })  : _client = client ?? http.Client(),
-        _ownsClient = client == null;
-
-  static const String _userAgent =
-      'MobileSEO-AuditBot/1.0 (+https://example.com/bot)';
+  }) : _client = client ?? http.Client(),
+       _ownsClient = client == null;
 
   final http.Client _client;
   final bool _ownsClient;
@@ -128,15 +133,15 @@ class SeoScraperService {
     final uri = _normalizeUrl(rawUrl);
 
     final http.Response response;
+    final stopwatch = Stopwatch()..start();
     try {
-      response = await _client.get(
-        uri,
-        headers: const {
-          'User-Agent': _userAgent,
-          'Accept': 'text/html,application/xhtml+xml',
-          'Accept-Language': 'en',
-        },
-      ).timeout(timeout);
+      response = await _client
+          .get(
+            uri,
+            headers: const {'Accept': 'text/html,application/xhtml+xml'},
+          )
+          .timeout(timeout);
+      stopwatch.stop();
     } on TimeoutException {
       throw SeoScrapeException(
         'Request timed out after ${timeout.inSeconds}s.',
@@ -144,9 +149,14 @@ class SeoScraperService {
         uri: uri,
       );
     } on http.ClientException catch (error) {
+      final detail = error.message.toLowerCase();
+      final cors =
+          detail.contains('xmlhttprequest') ||
+          detail.contains('failed to fetch') ||
+          detail.contains('cors');
       throw SeoScrapeException(
         'Request failed: ${error.message}',
-        kind: SeoErrorKind.network,
+        kind: cors ? SeoErrorKind.corsBlocked : SeoErrorKind.network,
         uri: uri,
       );
     } catch (error) {
@@ -204,6 +214,8 @@ class SeoScraperService {
         uri: response.request?.url ?? uri,
         document: html_parser.parse(markup),
         statusCode: response.statusCode,
+        responseHeaders: Map.unmodifiable(response.headers),
+        responseTimeMs: stopwatch.elapsedMilliseconds,
       );
     } catch (error) {
       throw SeoScrapeException(
@@ -250,8 +262,8 @@ class SeoScraperService {
 
   static String _decodeBody(List<int> bytes, String contentType) {
     final charset = _charsetFromContentType(contentType);
-    final encoding = (charset == null ? null : Encoding.getByName(charset)) ??
-        utf8;
+    final encoding =
+        (charset == null ? null : Encoding.getByName(charset)) ?? utf8;
     try {
       return encoding.decode(bytes);
     } on FormatException {
@@ -261,9 +273,10 @@ class SeoScraperService {
   }
 
   static String? _charsetFromContentType(String contentType) {
-    final match =
-        RegExp(r'charset\s*=\s*"?([\w-]+)"?', caseSensitive: false)
-            .firstMatch(contentType);
+    final match = RegExp(
+      r'charset\s*=\s*"?([\w-]+)"?',
+      caseSensitive: false,
+    ).firstMatch(contentType);
     return match?.group(1);
   }
 }

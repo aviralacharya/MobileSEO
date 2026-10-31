@@ -1,7 +1,12 @@
+import 'content_analyzer.dart';
 import 'image_seo_checker.dart';
+import 'indexation_checker.dart';
 import 'link_checker.dart';
 import 'open_graph_checker.dart';
 import 'seo_extractor.dart';
+import 'security_report.dart';
+import 'readability_accessibility_analyzer.dart';
+import 'schema_inspector.dart';
 import 'seo_scraper_service.dart';
 
 /// Colour category used by the UI for a single audit check.
@@ -33,9 +38,14 @@ class SeoAuditResult {
     required this.h2Count,
     required this.h3Count,
     required this.schemaTypes,
+    this.schemaScripts = const [],
     required this.imageReport,
     required this.openGraph,
     required this.linkAudit,
+    this.content = const ContentMetrics.empty(),
+    this.indexation = const IndexationInfo.empty(),
+    this.security = const SecurityReport.empty(),
+    this.readability = const ReadabilityAccessibilityReport(),
     required this.checks,
   });
 
@@ -47,9 +57,14 @@ class SeoAuditResult {
   final int h2Count;
   final int h3Count;
   final List<String> schemaTypes;
+  final List<JsonLdScriptReport> schemaScripts;
   final ImageSeoReport imageReport;
   final OpenGraphReport openGraph;
   final LinkAudit linkAudit;
+  final ContentMetrics content;
+  final IndexationInfo indexation;
+  final SecurityReport security;
+  final ReadabilityAccessibilityReport readability;
   final List<AuditCheck> checks;
 
   bool get hasSchema => schemaTypes.isNotEmpty;
@@ -129,9 +144,14 @@ class SeoAuditService {
       h2Count: h2,
       h3Count: h3,
       schemaTypes: snapshot.schemaTypes,
+      schemaScripts: snapshot.schemaScripts,
       imageReport: snapshot.imageReport,
       openGraph: snapshot.openGraph,
       linkAudit: snapshot.linkAudit,
+      content: snapshot.content,
+      indexation: snapshot.indexation,
+      security: snapshot.security,
+      readability: snapshot.readability,
       checks: checks,
     );
   }
@@ -157,7 +177,8 @@ class SeoAuditService {
       return AuditCheck(
         label: 'Meta title',
         value: title,
-        note: '${title.length} characters — may be cut off in search results. '
+        note:
+            '${title.length} characters — may be cut off in search results. '
             'Keep it under 60.',
         status: AuditStatus.warning,
       );
@@ -175,7 +196,8 @@ class SeoAuditService {
       return const AuditCheck(
         label: 'Meta description',
         value: 'No meta description found',
-        note: 'Add a meta description so search engines can summarise the page.',
+        note:
+            'Add a meta description so search engines can summarise the page.',
         status: AuditStatus.warning,
       );
     }
@@ -183,7 +205,8 @@ class SeoAuditService {
       return AuditCheck(
         label: 'Meta description',
         value: description,
-        note: '${description.length} characters — a little short. '
+        note:
+            '${description.length} characters — a little short. '
             'Aim for 70–160.',
         status: AuditStatus.warning,
       );
@@ -192,7 +215,8 @@ class SeoAuditService {
       return AuditCheck(
         label: 'Meta description',
         value: description,
-        note: '${description.length} characters — may be truncated. '
+        note:
+            '${description.length} characters — may be truncated. '
             'Keep it under 160.',
         status: AuditStatus.warning,
       );
@@ -200,7 +224,8 @@ class SeoAuditService {
     return AuditCheck(
       label: 'Meta description',
       value: description,
-      note: '${description.length} characters — ideal length for search results.',
+      note:
+          '${description.length} characters — ideal length for search results.',
       status: AuditStatus.good,
     );
   }
@@ -260,7 +285,8 @@ class SeoAuditService {
     }
     return AuditCheck(
       label: 'Image SEO',
-      value: '${report.missingAltCount} out of ${report.totalImages} '
+      value:
+          '${report.missingAltCount} out of ${report.totalImages} '
           'images missing alt text',
       note: report.missingAltCount == report.totalImages
           ? 'None of the images have alt text. Describe each one in a few words.'

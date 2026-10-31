@@ -1,11 +1,12 @@
-import 'dart:convert';
-
-import 'package:html/dom.dart' as dom;
-
+import 'content_analyzer.dart';
 import 'image_seo_checker.dart';
+import 'indexation_checker.dart';
 import 'link_checker.dart';
 import 'open_graph_checker.dart';
+import 'readability_accessibility_analyzer.dart';
+import 'schema_inspector.dart';
 import 'seo_scraper_service.dart';
+import 'security_report.dart';
 
 /// One heading found on the page, e.g. `HeadingTag(tag: 'h1', text: 'Pricing')`.
 class HeadingTag {
@@ -29,23 +30,33 @@ class SeoSnapshot {
     this.headings = const [],
     this.hasSchemaMarkup = false,
     this.schemaTypes = const [],
+    this.schemaScripts = const [],
     this.imageReport = const ImageSeoReport.empty(),
     this.openGraph = const OpenGraphReport.empty(),
     this.linkAudit = const LinkAudit.empty(),
+    this.content = const ContentMetrics.empty(),
+    this.indexation = const IndexationInfo.empty(),
+    this.security = const SecurityReport.empty(),
+    this.readability = const ReadabilityAccessibilityReport(),
     this.error,
     this.errorKind,
   });
 
   /// Builds a failed snapshot instead of throwing.
   const SeoSnapshot.failure(this.url, this.error, {this.errorKind})
-      : title = null,
-        metaDescription = null,
-        headings = const [],
-        hasSchemaMarkup = false,
-        schemaTypes = const [],
-        imageReport = const ImageSeoReport.empty(),
-        openGraph = const OpenGraphReport.empty(),
-        linkAudit = const LinkAudit.empty();
+    : title = null,
+      metaDescription = null,
+      headings = const [],
+      hasSchemaMarkup = false,
+      schemaTypes = const [],
+      schemaScripts = const [],
+      imageReport = const ImageSeoReport.empty(),
+      openGraph = const OpenGraphReport.empty(),
+      linkAudit = const LinkAudit.empty(),
+      content = const ContentMetrics.empty(),
+      indexation = const IndexationInfo.empty(),
+      security = const SecurityReport.empty(),
+      readability = const ReadabilityAccessibilityReport();
 
   /// Final URL after redirects (or the raw input if fetching failed).
   final String url;
@@ -60,6 +71,7 @@ class SeoSnapshot {
 
   /// `@type` values parsed out of the JSON-LD blocks (may be empty).
   final List<String> schemaTypes;
+  final List<JsonLdScriptReport> schemaScripts;
 
   /// Alt-text coverage for every `<img>` on the page.
   final ImageSeoReport imageReport;
@@ -69,6 +81,10 @@ class SeoSnapshot {
 
   /// Anchor counts, shown in the Technical & Links tab.
   final LinkAudit linkAudit;
+  final ContentMetrics content;
+  final IndexationInfo indexation;
+  final SecurityReport security;
+  final ReadabilityAccessibilityReport readability;
 
   /// Human-readable failure reason, or `null` on success.
   final String? error;
@@ -93,12 +109,12 @@ class SeoSnapshot {
       headings.add(HeadingTag(tag: tag, text: text));
     }
 
-    final schemaScripts =
-        document.querySelectorAll('script[type="application/ld+json"]');
+    final schemaInspection = inspectSchema(document);
 
     final title = page.title == null ? null : _cleanText(page.title!);
-    final description =
-        page.metaDescription == null ? null : _cleanText(page.metaDescription!);
+    final description = page.metaDescription == null
+        ? null
+        : _cleanText(page.metaDescription!);
 
     return SeoSnapshot(
       url: page.uri.toString(),
@@ -107,11 +123,16 @@ class SeoSnapshot {
           ? null
           : description,
       headings: List.unmodifiable(headings),
-      hasSchemaMarkup: schemaScripts.isNotEmpty,
-      schemaTypes: _schemaTypes(document),
+      hasSchemaMarkup: schemaInspection.scripts.isNotEmpty,
+      schemaTypes: schemaInspection.schemaTypes,
+      schemaScripts: schemaInspection.scripts,
       imageReport: checkImageSeo(document),
       openGraph: checkOpenGraph(document),
       linkAudit: checkLinks(document, page.uri),
+      content: ContentMetrics.fromDocument(document),
+      indexation: IndexationInfo.fromDocument(document, page.uri),
+      security: SecurityReport.fromPage(page),
+      readability: ReadabilityAccessibilityReport.fromDocument(document),
     );
   }
 }
@@ -156,53 +177,3 @@ Future<SeoSnapshot> extractSeo(
 }
 
 String _cleanText(String value) => value.replaceAll(RegExp(r'\s+'), ' ').trim();
-
-/// Reads `@type` values from JSON-LD blocks, falling back to microdata.
-List<String> _schemaTypes(dom.Document document) {
-  final types = <String>{};
-
-  for (final script
-      in document.querySelectorAll('script[type="application/ld+json"]')) {
-    final raw = script.text.trim();
-    if (raw.isEmpty) continue;
-    try {
-      _collectTypes(jsonDecode(raw), types);
-    } on FormatException {
-      // Invalid JSON-LD should not break the rest of the extraction.
-    }
-  }
-
-  if (types.isEmpty && document.querySelector('[itemscope]') != null) {
-    types.addAll(
-      document
-          .querySelectorAll('[itemscope][itemtype]')
-          .map((element) => element.attributes['itemtype'] ?? '')
-          .where((value) => value.isNotEmpty)
-          .map((value) => value.split('/').last)
-          .where((value) => value.isNotEmpty),
-    );
-  }
-
-  final sorted = types.toList()..sort();
-  return List.unmodifiable(sorted);
-}
-
-void _collectTypes(Object? node, Set<String> out) {
-  if (node is List) {
-    for (final item in node) {
-      _collectTypes(item, out);
-    }
-    return;
-  }
-  if (node is Map) {
-    final type = node['@type'];
-    if (type is String) {
-      out.add(type);
-    } else if (type is List) {
-      out.addAll(type.whereType<String>());
-    }
-    if (node.containsKey('@graph')) {
-      _collectTypes(node['@graph'], out);
-    }
-  }
-}
