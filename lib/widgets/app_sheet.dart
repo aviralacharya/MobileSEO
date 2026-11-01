@@ -28,10 +28,12 @@ class AppSheet {
       backgroundColor: scheme.surface,
       barrierColor: Colors.black.withValues(alpha: 0.45),
       clipBehavior: Clip.antiAlias,
-      sheetAnimationStyle: const AnimationStyle(
-        duration: animationDuration,
-        reverseDuration: animationDuration,
-      ),
+      sheetAnimationStyle: MediaQuery.disableAnimationsOf(context)
+          ? AnimationStyle.noAnimation
+          : const AnimationStyle(
+              duration: animationDuration,
+              reverseDuration: animationDuration,
+            ),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(_radius)),
       ),

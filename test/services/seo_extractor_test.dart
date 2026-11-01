@@ -27,9 +27,7 @@ const _html = '''
 ''';
 
 SeoScraperService _scraperReturning(http.Response response) {
-  return SeoScraperService(
-    client: MockClient((_) async => response),
-  );
+  return SeoScraperService(client: MockClient((_) async => response));
 }
 
 void main() {
@@ -62,10 +60,10 @@ void main() {
         'h2:Second section',
       ],
     );
-    expect(
-      snapshot.byTag('h2').map((heading) => heading.text),
-      ['First section', 'Second section'],
-    );
+    expect(snapshot.byTag('h2').map((heading) => heading.text), [
+      'First section',
+      'Second section',
+    ]);
   });
 
   test('adds https:// when the scheme is missing', () async {

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
-const _contactEmail = 'abiralacharya8@gmail.com';
+import '../widgets/app_widgets.dart';
+import '../widgets/support_card.dart';
 
 class LegalMenuButton extends StatelessWidget {
   const LegalMenuButton({super.key});
@@ -54,9 +54,11 @@ class _LegalPagesScreenState extends State<LegalPagesScreen>
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: const Text('Legal information'),
+      title: const BrandTitle(title: 'Legal information'),
       bottom: TabBar(
         controller: _tabs,
+        isScrollable: true,
+        tabAlignment: TabAlignment.start,
         tabs: const [
           Tab(text: 'Privacy Policy'),
           Tab(text: 'Terms & Conditions'),
@@ -68,7 +70,7 @@ class _LegalPagesScreenState extends State<LegalPagesScreen>
       children: [
         _LegalDocument(
           title: 'Privacy Policy',
-          intro: 'This policy explains how MobileSEO handles information when you use the app. Last updated October 31, 2026.',
+          intro: 'This policy explains how MobileSEO handles information when you use the app. Last updated November 1, 2026.',
           sections: const [
             _LegalSection(
               'Information you provide',
@@ -79,12 +81,16 @@ class _LegalPagesScreenState extends State<LegalPagesScreen>
               'The app requests pages and related public site files directly from your device, then analyzes the returned HTML and response data. Audit results are processed in the app; they are not sent to a MobileSEO account or audit server.',
             ),
             _LegalSection(
-              'On-device history',
-              'Completed audit snapshots and summary metrics are saved locally on your device so you can view history and score trends. You can remove saved entries from the History screen. Uninstalling the app or clearing its storage may remove this history.',
+              'On-device workspace and preferences',
+              'Up to 100 audit snapshots, saved project names and URLs, in-progress fixes and appearance/accessibility preferences are saved locally on your device. You can remove projects or individual audits in Projects and clear all audit history in Settings & Help. Clearing history removes comparison evidence; project and preference data are kept. Uninstalling the app or clearing its storage may remove this data. Device backup behavior is controlled by your operating system settings.',
             ),
             _LegalSection(
-              'PDF reports and sharing',
-              'PDF reports are generated on your device. If you choose to share or save a report, the receiving app or service handles it under its own privacy policy. MobileSEO does not control what happens after you share a report.',
+              'Google PageSpeed Insights',
+              'When you choose Run PageSpeed, MobileSEO opens Google’s PageSpeed Insights website in your default browser and passes it the audited page URL. Google requests and analyzes that page and handles ordinary request information, including your IP address, under its own privacy policy. New performance reports are viewed in your browser and are not stored by MobileSEO. Reports saved by earlier in-app checks can still be removed in Settings & Help.',
+            ),
+            _LegalSection(
+              'Reports and sharing',
+              'PDF and CSV reports are generated on your device and may include the audited URL, findings, dates, optional client and branding names, and notes you enter. If you choose to share or save a report, the receiving app or service handles it under its own privacy policy. MobileSEO does not control what happens after you share a report. Report text you enter is held for the current export screen and is not added to your saved project.',
             ),
             _LegalSection(
               'Network and third-party sites',
@@ -98,7 +104,7 @@ class _LegalPagesScreenState extends State<LegalPagesScreen>
         ),
         _LegalDocument(
           title: 'Terms & Conditions',
-          intro: 'By using MobileSEO, you agree to these terms. Last updated October 31, 2026.',
+          intro: 'By using MobileSEO, you agree to these terms. Last updated November 1, 2026.',
           sections: const [
             _LegalSection(
               'Use of the app',
@@ -114,7 +120,7 @@ class _LegalPagesScreenState extends State<LegalPagesScreen>
             ),
             _LegalSection(
               'Third-party websites and services',
-              'The app may request third-party websites and allow you to share PDF reports with other apps. Those sites and services are operated by others and are subject to their own terms and policies.',
+              'The app may request third-party websites, open Google PageSpeed Insights in your browser when requested, and allow you to share PDF or CSV reports with other apps. Those sites and services are operated by others and are subject to their own terms and policies. Availability, quotas and data coverage can vary.',
             ),
             _LegalSection(
               'Availability and changes',
@@ -146,6 +152,7 @@ class _LegalDocument extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return ListView(
+      key: PageStorageKey('legal-$title'),
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
       children: [
         Card(
@@ -178,26 +185,7 @@ class _LegalDocument extends StatelessWidget {
           ),
           const SizedBox(height: 10),
         ],
-        Card(
-          child: ListTile(
-            leading: const Icon(Icons.mail_outline_rounded),
-            title: const Text('More information'),
-            subtitle: const SelectableText(_contactEmail),
-            trailing: IconButton(
-              tooltip: 'Copy email address',
-              icon: const Icon(Icons.copy_rounded),
-              onPressed: () async {
-                await Clipboard.setData(
-                  const ClipboardData(text: _contactEmail),
-                );
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Email address copied')),
-                );
-              },
-            ),
-          ),
-        ),
+        const SupportCard(),
       ],
     );
   }

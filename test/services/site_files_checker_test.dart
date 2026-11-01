@@ -60,16 +60,20 @@ void main() {
       requested: requested,
     ).check(Uri.parse('http://example.com:8080/blog/post?x=1#top'));
 
-    expect(requested, unorderedEquals([
-      Uri.parse('http://example.com:8080/robots.txt'),
-      Uri.parse('http://example.com:8080/sitemap.xml'),
-    ]));
+    expect(
+      requested,
+      unorderedEquals([
+        Uri.parse('http://example.com:8080/robots.txt'),
+        Uri.parse('http://example.com:8080/sitemap.xml'),
+        Uri.parse('http://example.com:8080/llms.txt'),
+        Uri.parse('http://example.com:8080/llms-full.txt'),
+      ]),
+    );
   });
 
   test('fails a missing robots.txt but still passes the sitemap', () async {
-    final report = await _checker(
-      sitemap: http.Response(_sitemapFile, 200),
-    ).check(Uri.parse('https://example.com'));
+    final report = await _checker(sitemap: http.Response(_sitemapFile, 200))
+        .check(Uri.parse('https://example.com'));
 
     expect(report.robots.passed, isFalse);
     expect(report.robots.httpStatus, 404);
@@ -81,7 +85,10 @@ void main() {
 
   test('rejects a soft-404 HTML page served with HTTP 200', () async {
     final report = await _checker(
-      robots: http.Response('<!DOCTYPE html><html><body>Oops</body></html>', 200),
+      robots: http.Response(
+        '<!DOCTYPE html><html><body>Oops</body></html>',
+        200,
+      ),
       sitemap: http.Response('<html><body>Not here</body></html>', 200),
     ).check(Uri.parse('https://example.com'));
 
@@ -92,9 +99,8 @@ void main() {
   });
 
   test('rejects a 200 response that is not a sitemap', () async {
-    final report = await _checker(
-      sitemap: http.Response('{"ok":true}', 200),
-    ).check(Uri.parse('https://example.com'));
+    final report = await _checker(sitemap: http.Response('{"ok":true}', 200))
+        .check(Uri.parse('https://example.com'));
 
     expect(report.sitemap.passed, isFalse);
     expect(report.sitemap.httpStatus, 200);

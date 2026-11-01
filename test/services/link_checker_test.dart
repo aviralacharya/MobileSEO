@@ -29,11 +29,7 @@ void main() {
     expect(audit.internal, 2);
     expect(audit.external, 3);
     expect(audit.total, 5);
-    expect(audit.externalHosts, [
-      'cdn.other.com',
-      'other.com',
-      'third.com',
-    ]);
+    expect(audit.externalHosts, ['cdn.other.com', 'other.com', 'third.com']);
   });
 
   test('counts placeholder and non-navigational hrefs', () {

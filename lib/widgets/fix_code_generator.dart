@@ -119,7 +119,7 @@ class _FixCodeGeneratorState extends State<FixCodeGenerator> {
       children: [
         if (isSchema)
           DropdownButtonFormField<String>(
-            value: _schema,
+            initialValue: _schema,
             decoration: const InputDecoration(labelText: 'Schema type'),
             items: const [
               'Organization',
@@ -200,8 +200,9 @@ class _FixCodeGeneratorState extends State<FixCodeGenerator> {
     final regex = RegExp(r'(<[^>]+>|"[^"]*")');
     var pos = 0;
     for (final m in regex.allMatches(code)) {
-      if (m.start > pos)
+      if (m.start > pos) {
         spans.add(TextSpan(text: code.substring(pos, m.start)));
+      }
       final token = m.group(0)!;
       spans.add(
         TextSpan(

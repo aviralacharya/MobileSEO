@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/content_analyzer.dart';
 import '../services/image_seo_checker.dart';
@@ -10,8 +12,49 @@ import '../services/seo_audit_service.dart';
 import '../services/site_files_checker.dart';
 import '../services/security_report.dart';
 import '../services/readability_accessibility_analyzer.dart';
-import '../services/pagespeed_insights_service.dart';
 import 'app_widgets.dart';
+
+class _AuditCardHeader extends StatelessWidget {
+  const _AuditCardHeader({
+    required this.icon,
+    required this.title,
+    required this.trailing,
+  });
+
+  final IconData icon;
+  final String title;
+  final Widget trailing;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final stacked =
+          constraints.maxWidth <
+          320 * MediaQuery.textScalerOf(context).scale(16) / 16;
+      final heading = Row(
+        children: [
+          IconBubble(icon: icon),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              title,
+              style: Theme.of(context).textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w600),
+            ),
+          ),
+          if (!stacked) ...[const SizedBox(width: 12), trailing],
+        ],
+      );
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          heading,
+          if (stacked) ...[const SizedBox(height: 10), trailing],
+        ],
+      );
+    },
+  );
+}
 
 class MetaCard extends StatelessWidget {
   const MetaCard({super.key, required this.check, required this.icon});
@@ -27,20 +70,10 @@ class MetaCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              IconBubble(icon: icon),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  check.label,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              StatusChip(status: check.status),
-            ],
+          _AuditCardHeader(
+            icon: icon,
+            title: check.label,
+            trailing: StatusChip(status: check.status),
           ),
           const SizedBox(height: 14),
           Text(
@@ -71,29 +104,18 @@ class HeadingsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final h1Good = result.h1Count == 1;
 
     return SectionCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const IconBubble(icon: Icons.format_size_rounded),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Headings',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              StatusChip(
-                status: h1Good ? AuditStatus.good : AuditStatus.warning,
-              ),
-            ],
+          _AuditCardHeader(
+            icon: Icons.format_size_rounded,
+            title: 'Headings',
+            trailing: StatusChip(
+              status: h1Good ? AuditStatus.good : AuditStatus.warning,
+            ),
           ),
           const SizedBox(height: 16),
           _HeadingRow(
@@ -218,20 +240,10 @@ class ImagesCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const IconBubble(icon: Icons.image_rounded),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Image SEO',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              StatusChip(status: status),
-            ],
+          _AuditCardHeader(
+            icon: Icons.image_rounded,
+            title: 'Image SEO',
+            trailing: StatusChip(status: status),
           ),
           const SizedBox(height: 14),
           Text(
@@ -270,6 +282,7 @@ class ImagesCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           ExpansionTile(
+            key: const PageStorageKey('scanned-images'),
             tilePadding: EdgeInsets.zero,
             childrenPadding: EdgeInsets.zero,
             title: Text('Scanned images (${report.images.length})'),
@@ -420,24 +433,14 @@ class OpenGraphCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const IconBubble(icon: Icons.share_rounded),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Social preview',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              StatusChip(
-                status: report.isComplete
-                    ? AuditStatus.good
-                    : AuditStatus.warning,
-              ),
-            ],
+          _AuditCardHeader(
+            icon: Icons.share_rounded,
+            title: 'Social preview',
+            trailing: StatusChip(
+              status: report.isComplete
+                  ? AuditStatus.good
+                  : AuditStatus.warning,
+            ),
           ),
           const SizedBox(height: 6),
           Text(
@@ -537,24 +540,14 @@ class SchemaCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const IconBubble(icon: Icons.code_rounded),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Schema markup',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              StatusChip(
-                status: hasMarkup && syntaxPassed
-                    ? AuditStatus.good
-                    : AuditStatus.warning,
-              ),
-            ],
+          _AuditCardHeader(
+            icon: Icons.code_rounded,
+            title: 'Schema markup',
+            trailing: StatusChip(
+              status: hasMarkup && syntaxPassed
+                  ? AuditStatus.good
+                  : AuditStatus.warning,
+            ),
           ),
           const SizedBox(height: 14),
           if (!hasMarkup)
@@ -611,6 +604,7 @@ class SchemaCard extends StatelessWidget {
               const SizedBox(height: 6),
               for (final script in result.schemaScripts)
                 ExpansionTile(
+                  key: PageStorageKey('schema-${result.url}-${script.index}'),
                   tilePadding: EdgeInsets.zero,
                   childrenPadding: const EdgeInsets.only(bottom: 12),
                   title: Text('JSON-LD script ${script.index}'),
@@ -652,10 +646,17 @@ class SchemaCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: SingleChildScrollView(
+                        key: PageStorageKey(
+                          'schema-horizontal-${script.index}',
+                        ),
                         scrollDirection: Axis.horizontal,
                         child: SingleChildScrollView(
+                          key: PageStorageKey(
+                            'schema-vertical-${script.index}',
+                          ),
                           child: SelectableText(
                             script.formattedJson ?? script.rawJson,
+                            key: PageStorageKey('schema-text-${script.index}'),
                             style: theme.textTheme.bodySmall?.copyWith(
                               fontFamily: 'monospace',
                               height: 1.45,
@@ -675,8 +676,9 @@ class SchemaCard extends StatelessWidget {
 }
 
 class LinksCard extends StatefulWidget {
-  const LinksCard({super.key, required this.audit});
+  const LinksCard({super.key, required this.audit, this.enabled = true});
   final LinkAudit audit;
+  final bool enabled;
   @override
   State<LinksCard> createState() => _LinksCardState();
 }
@@ -685,38 +687,95 @@ class _LinksCardState extends State<LinksCard> {
   bool scanning = false;
   int done = 0;
   List<String> broken = [];
+  List<String> unavailable = [];
+  http.Client? _client;
+  int _version = 0;
+
+  @override
+  void dispose() {
+    _version++;
+    _client?.close();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant LinksCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(widget.audit, oldWidget.audit) ||
+        widget.enabled != oldWidget.enabled) {
+      _version++;
+      _client?.close();
+      _client = null;
+      scanning = false;
+      done = 0;
+      broken = [];
+      unavailable = [];
+    }
+  }
+
+  void _cancel() {
+    _version++;
+    _client?.close();
+    _client = null;
+    setState(() => scanning = false);
+  }
+
   Future<void> scan() async {
+    if (scanning || !widget.enabled) return;
+    final version = ++_version;
+    bool current() => mounted && version == _version;
     setState(() {
       scanning = true;
       done = 0;
       broken = [];
+      unavailable = [];
     });
     final client = http.Client();
-    final links = widget.audit.urls.take(25).toList();
+    _client = client;
+    final links = widget.audit.urls.toSet().take(25).toList();
+    var next = 0;
     try {
-      for (final link in links) {
-        try {
-          var r = await client
-              .head(Uri.parse(link))
-              .timeout(const Duration(seconds: 7));
-          if (r.statusCode == 405 || r.statusCode == 501) {
-            r = await client
-                .get(Uri.parse(link))
-                .timeout(const Duration(seconds: 7));
+      await Future.wait(
+        List.generate(3, (_) async {
+          while (next < links.length && current()) {
+            final link = links[next++];
+            try {
+              var r = await client
+                  .head(Uri.parse(link))
+                  .timeout(const Duration(seconds: 7));
+              if (!current()) return;
+              if (r.statusCode == 405 || r.statusCode == 501) {
+                r = await client
+                    .get(Uri.parse(link))
+                    .timeout(const Duration(seconds: 7));
+              }
+              if (!current()) return;
+              if (r.statusCode == 404 ||
+                  r.statusCode == 410 ||
+                  r.statusCode >= 500) {
+                broken.add(link);
+              } else if (r.statusCode >= 400) {
+                unavailable.add(link);
+              }
+            } catch (_) {
+              if (!current()) return;
+              unavailable.add(link);
+            }
+            if (current()) setState(() => done++);
           }
-          if (r.statusCode == 404 || r.statusCode >= 500) broken.add(link);
-        } catch (_) {}
-        if (mounted) setState(() => done++);
-      }
+        }),
+      );
     } finally {
       client.close();
-      if (mounted) setState(() => scanning = false);
+      if (identical(_client, client)) _client = null;
+      if (current()) setState(() => scanning = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final a = widget.audit;
+    final scanTotal = a.urls.toSet().take(25).length;
     final theme = Theme.of(context);
     return SectionCard(
       child: Column(
@@ -739,28 +798,41 @@ class _LinksCardState extends State<LinksCard> {
             ),
             const SizedBox(height: 10),
             FilledButton.tonalIcon(
-              onPressed: scanning || a.urls.isEmpty ? null : scan,
+              onPressed: scanning || a.urls.isEmpty || !widget.enabled
+                  ? null
+                  : scan,
               icon: const Icon(Icons.broken_image_outlined),
               label: Text(
                 scanning
-                    ? 'Scanning $done/${a.urls.length < 25 ? a.urls.length : 25}…'
+                    ? 'Scanning $done/$scanTotal…'
                     : 'Scan for Broken Links',
               ),
             ),
+            Text(
+              widget.enabled
+                  ? 'Checks up to 25 unique links. Counts above come from page HTML.'
+                  : 'Sample audit · Live link requests are disabled.',
+              style: theme.textTheme.bodySmall,
+            ),
+            if (scanning)
+              TextButton(
+                onPressed: _cancel,
+                child: const Text('Cancel link scan'),
+              ),
             if (scanning)
               LinearProgressIndicator(
-                value: a.urls.isEmpty
-                    ? 0
-                    : done / (a.urls.length < 25 ? a.urls.length : 25),
+                value: scanTotal == 0 ? 0 : done / scanTotal,
               ),
             if (!scanning && done > 0) ...[
               Text(
-                broken.isEmpty
-                    ? 'No 404 or server-error links found.'
-                    : '${broken.length} dead links found',
+                '${broken.length} HTTP-error links · ${unavailable.length} unavailable · $done checked',
               ),
               for (final url in broken)
                 Text(url, style: TextStyle(color: theme.colorScheme.error)),
+              if (unavailable.isNotEmpty)
+                const Text(
+                  'Unavailable links could not be verified. Retry the scan to check them again.',
+                ),
             ],
           ],
         ],
@@ -816,24 +888,12 @@ class SiteFilesCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const IconBubble(icon: Icons.travel_explore_rounded),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Crawl files',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              StatusChip(
-                status: report.allPassed
-                    ? AuditStatus.good
-                    : AuditStatus.warning,
-              ),
-            ],
+          _AuditCardHeader(
+            icon: Icons.travel_explore_rounded,
+            title: 'Crawl files',
+            trailing: StatusChip(
+              status: report.allPassed ? AuditStatus.good : AuditStatus.warning,
+            ),
           ),
           const SizedBox(height: 6),
           Text(
@@ -868,23 +928,13 @@ class AIReadinessCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const IconBubble(icon: Icons.smart_toy_outlined),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'AI Search & LLM Readiness',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              Chip(
-                avatar: const Icon(Icons.auto_awesome_rounded, size: 16),
-                label: Text('AI ${hasData ? report.score : '—'}/100'),
-              ),
-            ],
+          _AuditCardHeader(
+            icon: Icons.smart_toy_outlined,
+            title: 'AI Search & LLM Readiness',
+            trailing: Chip(
+              avatar: const Icon(Icons.auto_awesome_rounded, size: 16),
+              label: Text('AI ${hasData ? report.score : '—'}/100'),
+            ),
           ),
           const SizedBox(height: 6),
           Text(
@@ -954,63 +1004,77 @@ class AIReadinessCard extends StatelessWidget {
 }
 
 class CoreWebVitalsCard extends StatefulWidget {
-  const CoreWebVitalsCard({super.key, required this.auditedUrl});
+  const CoreWebVitalsCard({
+    super.key,
+    required this.auditedUrl,
+    this.localFetchTimeMs = 0,
+    this.enabled = true,
+  });
 
   final String auditedUrl;
+  final int localFetchTimeMs;
+  final bool enabled;
 
   @override
   State<CoreWebVitalsCard> createState() => _CoreWebVitalsCardState();
 }
 
 class _CoreWebVitalsCardState extends State<CoreWebVitalsCard> {
-  final PageSpeedInsightsService _service = PageSpeedInsightsService();
-  PageSpeedReport? _report;
   String? _error;
-  bool _loading = false;
+  bool _opening = false;
   int _requestVersion = 0;
 
-  @override
-  void initState() {
-    super.initState();
-    _run();
-  }
+  Uri get _pageSpeedUri => Uri.https('pagespeed.web.dev', '/analysis', {
+    'url': widget.auditedUrl,
+    'form_factor': 'mobile',
+  });
 
   @override
   void didUpdateWidget(covariant CoreWebVitalsCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.auditedUrl != widget.auditedUrl) _run();
-  }
-
-  @override
-  void dispose() {
-    _service.close();
-    super.dispose();
-  }
-
-  Future<void> _run() async {
-    final requestVersion = ++_requestVersion;
-    final targetUrl = widget.auditedUrl;
-    setState(() {
-      _loading = true;
+    if (oldWidget.auditedUrl != widget.auditedUrl ||
+        oldWidget.enabled != widget.enabled) {
+      _requestVersion++;
       _error = null;
-      _report = null;
+      _opening = false;
+    }
+  }
+
+  Future<void> _openPageSpeed() async {
+    if (_opening || !widget.enabled) return;
+    final requestVersion = ++_requestVersion;
+    setState(() {
+      _opening = true;
+      _error = null;
     });
+    var opened = false;
     try {
-      final report = await _service.analyze(targetUrl);
-      if (mounted && requestVersion == _requestVersion) {
-        setState(() => _report = report);
+      opened = await launchUrl(
+        _pageSpeedUri,
+        mode: LaunchMode.externalApplication,
+        webOnlyWindowName: '_blank',
+      );
+    } catch (_) {
+      // Keep the link available if the platform cannot open a browser.
+    }
+    if (!mounted || requestVersion != _requestVersion) return;
+    setState(() {
+      _opening = false;
+      _error = opened ? null : 'Could not open your browser. Try again or copy the PageSpeed link below.';
+    });
+  }
+
+  Future<void> _copyLink() async {
+    try {
+      await Clipboard.setData(ClipboardData(text: _pageSpeedUri.toString()));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('PageSpeed link copied')));
       }
-    } on PageSpeedInsightsException catch (error) {
-      if (mounted && requestVersion == _requestVersion) {
-        setState(() => _error = error.message);
-      }
-    } catch (error) {
-      if (mounted && requestVersion == _requestVersion) {
-        setState(() => _error = 'PageSpeed analysis failed: $error');
-      }
-    } finally {
-      if (mounted && requestVersion == _requestVersion) {
-        setState(() => _loading = false);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'Select the PageSpeed link below to copy it.');
       }
     }
   }
@@ -1019,15 +1083,6 @@ class _CoreWebVitalsCardState extends State<CoreWebVitalsCard> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final report = _report;
-    final score = report?.performanceScore;
-    final scoreRating = score == null
-        ? VitalRating.unavailable
-        : score >= 90
-        ? VitalRating.good
-        : score >= 50
-        ? VitalRating.needsImprovement
-        : VitalRating.poor;
 
     return SectionCard(
       child: Column(
@@ -1045,11 +1100,6 @@ class _CoreWebVitalsCardState extends State<CoreWebVitalsCard> {
                   ),
                 ),
               ),
-              IconButton(
-                tooltip: 'Run mobile PageSpeed test again',
-                onPressed: _loading ? null : _run,
-                icon: const Icon(Icons.refresh_rounded),
-              ),
             ],
           ),
           Text(
@@ -1059,69 +1109,42 @@ class _CoreWebVitalsCardState extends State<CoreWebVitalsCard> {
             ),
           ),
           const SizedBox(height: 18),
-          if (_loading)
-            const Center(
-              child: Padding(
-                padding: EdgeInsets.symmetric(vertical: 20),
-                child: Column(
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 10),
-                    Text('Running mobile performance analysis…'),
-                  ],
-                ),
-              ),
+          if (!widget.enabled)
+            const Text(
+              'Sample audit · Audit a real page to open its PageSpeed report in your browser.',
             )
-          else if (_error != null)
-            _PageSpeedError(message: _error!, onRetry: _run)
-          else if (report != null) ...[
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                _PerformanceScoreRing(score: score, rating: scoreRating),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Text(
-                    report.usedOriginData
-                        ? 'Field metrics use the 75th percentile of recent real-user data, falling back to the site origin when page samples are limited.'
-                        : 'Field data uses the 75th percentile of recent real users; Lighthouse lab results fill missing metrics.',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                      height: 1.4,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _VitalRing(
-                  label: 'LCP',
-                  metric: report.lcp,
-                  kind: _VitalKind.lcp,
-                ),
-                _VitalRing(
-                  label: 'CLS',
-                  metric: report.cls,
-                  kind: _VitalKind.cls,
-                ),
-                _VitalRing(
-                  label: 'INP',
-                  metric: report.inp,
-                  kind: _VitalKind.inp,
-                ),
-              ],
+          else ...[
+            const Text(
+              'Open Google PageSpeed Insights in your default browser to run the mobile speed test and view Core Web Vitals for this page.',
             ),
             const SizedBox(height: 12),
+            FilledButton.tonalIcon(
+              onPressed: _opening ? null : _openPageSpeed,
+              icon: const Icon(Icons.open_in_new_rounded),
+              label: Text(_opening ? 'Opening browser…' : 'Run PageSpeed'),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Text(_error!, style: TextStyle(color: scheme.error)),
+              const SizedBox(height: 8),
+              SelectableText(
+                _pageSpeedUri.toString(),
+                style: theme.textTheme.bodySmall,
+              ),
+              TextButton.icon(
+                onPressed: _copyLink,
+                icon: const Icon(Icons.copy_rounded, size: 18),
+                label: const Text('Copy PageSpeed link'),
+              ),
+            ],
+          ],
+          if (widget.localFetchTimeMs > 0) ...[
+            const SizedBox(height: 16),
             Text(
-              'LCP: loading · CLS: visual stability · INP: responsiveness. '
-              'Field data covers a recent 28-day period; lab values are simulated.',
-              style: theme.textTheme.labelSmall?.copyWith(
+              'HTML fetch time for this audit: ${widget.localFetchTimeMs} ms. '
+              'This is separate from rendering speed and Core Web Vitals.',
+              style: theme.textTheme.bodySmall?.copyWith(
                 color: scheme.onSurfaceVariant,
-                height: 1.35,
               ),
             ),
           ],
@@ -1130,190 +1153,6 @@ class _CoreWebVitalsCardState extends State<CoreWebVitalsCard> {
     );
   }
 }
-
-enum _VitalKind { lcp, cls, inp }
-
-class _PerformanceScoreRing extends StatelessWidget {
-  const _PerformanceScoreRing({required this.score, required this.rating});
-  final int? score;
-  final VitalRating rating;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = _vitalColor(context, rating);
-    final value = (score ?? 0) / 100;
-    return SizedBox(
-      width: 96,
-      height: 96,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0, end: value),
-            duration: const Duration(milliseconds: 850),
-            curve: Curves.easeOutCubic,
-            builder: (context, progress, _) => CircularProgressIndicator(
-              value: score == null ? 0 : progress,
-              strokeWidth: 8,
-              backgroundColor: Theme.of(context)
-                  .colorScheme
-                  .surfaceContainerHighest,
-              valueColor: AlwaysStoppedAnimation(color),
-            ),
-          ),
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                score?.toString() ?? '—',
-                style: Theme.of(context).textTheme.headlineSmall
-                    ?.copyWith(color: color, fontWeight: FontWeight.w800),
-              ),
-              Text('Score', style: Theme.of(context).textTheme.labelSmall),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _VitalRing extends StatelessWidget {
-  const _VitalRing({
-    required this.label,
-    required this.metric,
-    required this.kind,
-  });
-  final String label;
-  final WebVitalMetric metric;
-  final _VitalKind kind;
-
-  String get _value {
-    final value = metric.value;
-    if (value == null) return '—';
-    if (kind == _VitalKind.cls) return value.toStringAsFixed(2);
-    if (kind == _VitalKind.lcp && value >= 1000) {
-      return '${(value / 1000).toStringAsFixed(1)} s';
-    }
-    return '${value.round()} ms';
-  }
-
-  double get _progress {
-    final value = metric.value;
-    if (value == null) return 0;
-    final maximum = switch (kind) {
-      _VitalKind.lcp => 8000.0,
-      _VitalKind.cls => 0.5,
-      _VitalKind.inp => 1000.0,
-    };
-    return (1 - value / maximum).clamp(0.0, 1.0);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final color = _vitalColor(context, metric.rating);
-    return SizedBox(
-      width: 88,
-      child: Column(
-        children: [
-          SizedBox(
-            width: 70,
-            height: 70,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                TweenAnimationBuilder<double>(
-                  tween: Tween(begin: 0, end: _progress),
-                  duration: const Duration(milliseconds: 700),
-                  curve: Curves.easeOutCubic,
-                  builder: (context, progress, _) => CircularProgressIndicator(
-                    value: metric.value == null ? 0 : progress,
-                    strokeWidth: 6,
-                    backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                    valueColor: AlwaysStoppedAnimation(color),
-                  ),
-                ),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    _value,
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      color: color,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(label, style: theme.textTheme.titleSmall),
-          Text(
-            _ratingLabel(metric.rating),
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            style: theme.textTheme.labelSmall?.copyWith(color: color),
-          ),
-          Text(
-            switch (metric.source) {
-              'Real-user field data' => 'Field data',
-              'Origin field data' => 'Origin data',
-              'Lighthouse lab data' => 'Lab data',
-              _ => 'No data',
-            },
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              fontSize: 9,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PageSpeedError extends StatelessWidget {
-  const _PageSpeedError({required this.message, required this.onRetry});
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        message,
-        style: TextStyle(color: Theme.of(context).colorScheme.error),
-      ),
-      const SizedBox(height: 8),
-      TextButton.icon(
-        onPressed: onRetry,
-        icon: const Icon(Icons.refresh_rounded),
-        label: const Text('Try again'),
-      ),
-    ],
-  );
-}
-
-Color _vitalColor(BuildContext context, VitalRating rating) {
-  final scheme = Theme.of(context).colorScheme;
-  return switch (rating) {
-    VitalRating.good => const Color(0xFF168A55),
-    VitalRating.needsImprovement => const Color(0xFFD28A00),
-    VitalRating.poor => scheme.error,
-    VitalRating.unavailable => scheme.onSurfaceVariant,
-  };
-}
-
-String _ratingLabel(VitalRating rating) => switch (rating) {
-  VitalRating.good => 'Good',
-  VitalRating.needsImprovement => 'Needs work',
-  VitalRating.poor => 'Poor',
-  VitalRating.unavailable => 'No data',
-};
 
 class _AiCrawlerChip extends StatelessWidget {
   const _AiCrawlerChip({required this.status});
@@ -1615,20 +1454,27 @@ class _KeywordBar extends StatelessWidget {
   final int max;
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 5),
-    child: Row(
+    padding: const EdgeInsets.symmetric(vertical: 8),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(
-          width: 125,
-          child: Text(
-            metric.term,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          spacing: 12,
+          runSpacing: 4,
+          children: [
+            Text(metric.term),
+            Text(
+              '${metric.count} · ${metric.density.toStringAsFixed(1)}%',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
         ),
-        Expanded(child: LinearProgressIndicator(value: metric.count / max)),
-        const SizedBox(width: 8),
-        Text('${metric.count} · ${metric.density.toStringAsFixed(1)}%'),
+        const SizedBox(height: 6),
+        LinearProgressIndicator(
+          value: max <= 0 ? 0 : (metric.count / max).clamp(0, 1),
+          semanticsLabel: '${metric.term}, ${metric.count} occurrences',
+        ),
       ],
     ),
   );
@@ -1682,10 +1528,7 @@ class IndexationCard extends StatelessWidget {
             const Text('None found')
           else
             for (final e in info.hreflangs)
-              Text(
-                '${e.language} → ${e.url}',
-                style: theme.textTheme.bodySmall,
-              ),
+              Text('${e.language}: ${e.url}', style: theme.textTheme.bodySmall),
         ],
       ),
     );
@@ -1816,6 +1659,7 @@ class ReadabilityAccessibilityCard extends StatelessWidget {
       child: Theme(
         data: theme.copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
+          key: const PageStorageKey('readability-accessibility'),
           tilePadding: EdgeInsets.zero,
           childrenPadding: EdgeInsets.zero,
           leading: const IconBubble(icon: Icons.accessibility_new_rounded),

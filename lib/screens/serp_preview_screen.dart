@@ -3,16 +3,19 @@ import 'package:flutter/material.dart';
 import '../services/seo_audit_service.dart';
 import '../widgets/app_widgets.dart';
 import '../widgets/social_share_card_debugger.dart';
-import 'legal_pages.dart';
 
 class SerpPreviewScreen extends StatefulWidget {
   const SerpPreviewScreen({
     super.key,
     required this.result,
     required this.onGoToAudit,
+    this.onBack,
+    this.isSample = false,
   });
   final SeoAuditResult? result;
   final VoidCallback onGoToAudit;
+  final VoidCallback? onBack;
+  final bool isSample;
 
   @override
   State<SerpPreviewScreen> createState() => _SerpPreviewScreenState();
@@ -27,6 +30,7 @@ class _SerpPreviewScreenState extends State<SerpPreviewScreen> {
   @override
   void didUpdateWidget(covariant SerpPreviewScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.result, widget.result)) _loadedUrl = null;
     _syncFields();
   }
 
@@ -56,11 +60,10 @@ class _SerpPreviewScreenState extends State<SerpPreviewScreen> {
     final result = widget.result;
     return Scaffold(
       appBar: AppBar(
-        actions: const [ThemeModeToggle(), LegalMenuButton()],
-        title: const BrandTitle(
-          title: 'SERP & Social Previews',
-          icon: Icons.search_rounded,
-        ),
+        leading: widget.onBack == null
+            ? null
+            : BackButton(onPressed: widget.onBack),
+        title: const BrandTitle(title: 'Search & social previews'),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -82,6 +85,11 @@ class _SerpPreviewScreenState extends State<SerpPreviewScreen> {
                   : Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        if (widget.isSample)
+                          const Padding(
+                            padding: EdgeInsets.only(bottom: 12),
+                            child: Text('Sample audit · Offline preview'),
+                          ),
                         _serp(context, result),
                         const SizedBox(height: 16),
                         _social(context, result),
@@ -111,21 +119,28 @@ class _SerpPreviewScreenState extends State<SerpPreviewScreen> {
         children: [
           Text('Google Search preview', style: theme.textTheme.titleLarge),
           const SizedBox(height: 12),
-          SegmentedButton<bool>(
-            segments: const [
-              ButtonSegment(
-                value: true,
-                label: Text('Mobile SERP'),
-                icon: Icon(Icons.phone_android),
-              ),
-              ButtonSegment(
-                value: false,
-                label: Text('Desktop SERP'),
-                icon: Icon(Icons.desktop_windows),
-              ),
-            ],
-            selected: {_mobile},
-            onSelectionChanged: (v) => setState(() => _mobile = v.first),
+          LayoutBuilder(
+            builder: (context, constraints) => SegmentedButton<bool>(
+              direction:
+                  constraints.maxWidth <
+                      280 * MediaQuery.textScalerOf(context).scale(16) / 16
+                  ? Axis.vertical
+                  : Axis.horizontal,
+              segments: const [
+                ButtonSegment(
+                  value: true,
+                  label: Text('Mobile'),
+                  icon: Icon(Icons.phone_android),
+                ),
+                ButtonSegment(
+                  value: false,
+                  label: Text('Desktop'),
+                  icon: Icon(Icons.desktop_windows),
+                ),
+              ],
+              selected: {_mobile},
+              onSelectionChanged: (v) => setState(() => _mobile = v.first),
+            ),
           ),
           const SizedBox(height: 12),
           TextField(
@@ -135,6 +150,7 @@ class _SerpPreviewScreenState extends State<SerpPreviewScreen> {
             decoration: const InputDecoration(
               labelText: 'Preview title',
               helperText: 'About 60 characters is a useful guide.',
+              helperMaxLines: 2,
             ),
           ),
           TextField(
@@ -145,17 +161,17 @@ class _SerpPreviewScreenState extends State<SerpPreviewScreen> {
             decoration: const InputDecoration(
               labelText: 'Preview description',
               helperText: 'About 160 characters is a useful guide.',
+              helperMaxLines: 2,
             ),
           ),
           const SizedBox(height: 12),
           AnimatedAlign(
             alignment: _mobile ? Alignment.center : Alignment.centerLeft,
-            duration: const Duration(milliseconds: 240),
+            duration: MediaQuery.disableAnimationsOf(context)
+                ? Duration.zero
+                : const Duration(milliseconds: 240),
             curve: Curves.easeOutCubic,
-            child: AnimatedSize(
-              duration: const Duration(milliseconds: 240),
-              curve: Curves.easeOutCubic,
-              alignment: Alignment.topCenter,
+            child: MotionAwareSize(
               child: ConstrainedBox(
                 constraints: BoxConstraints(maxWidth: _mobile ? 360 : 600),
                 child: Container(
@@ -230,5 +246,8 @@ class _SerpPreviewScreenState extends State<SerpPreviewScreen> {
   }
 
   Widget _social(BuildContext context, SeoAuditResult result) =>
-      SocialShareCardDebugger(result: result);
+      SocialShareCardDebugger(
+        result: result,
+        allowNetworkImages: !widget.isSample,
+      );
 }

@@ -4,8 +4,13 @@ import '../services/seo_audit_service.dart';
 import 'app_widgets.dart';
 
 class SocialShareCardDebugger extends StatefulWidget {
-  const SocialShareCardDebugger({super.key, required this.result});
+  const SocialShareCardDebugger({
+    super.key,
+    required this.result,
+    this.allowNetworkImages = true,
+  });
   final SeoAuditResult result;
+  final bool allowNetworkImages;
 
   @override
   State<SocialShareCardDebugger> createState() =>
@@ -79,11 +84,12 @@ class _SocialShareCardDebuggerState extends State<SocialShareCardDebugger> {
     final description = _description.text.trim().isEmpty
         ? 'Add a short page summary for social sharing.'
         : _description.text.trim();
-    final image = _resolveImage(_image.text, widget.result.url);
-    final xImage = _resolveImage(
-      og.twitterImage ?? _image.text,
-      widget.result.url,
-    );
+    final image = widget.allowNetworkImages
+        ? _resolveImage(_image.text, widget.result.url)
+        : null;
+    final xImage = !widget.allowNetworkImages
+        ? null
+        : _resolveImage(og.twitterImage ?? _image.text, widget.result.url);
     final missing = <(String, String)>[
       if (og.title == null)
         ('og:title', 'Add a concise, page-specific share title.'),
@@ -184,11 +190,12 @@ class _SocialShareCardDebuggerState extends State<SocialShareCardDebugger> {
             },
           ),
           const SizedBox(height: 18),
-          Row(
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Expanded(
-                child: Text('Tag checks', style: theme.textTheme.titleSmall),
-              ),
+              Text('Tag checks', style: theme.textTheme.titleSmall),
               if (missing.isNotEmpty)
                 _TagCountBadge(count: missing.length)
               else
@@ -200,14 +207,12 @@ class _SocialShareCardDebuggerState extends State<SocialShareCardDebugger> {
             for (final item in missing)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _MissingTagBadge(tag: item.$1),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(item.$2, style: theme.textTheme.bodySmall),
-                    ),
+                    const SizedBox(height: 4),
+                    Text(item.$2, style: theme.textTheme.bodySmall),
                   ],
                 ),
               ),
@@ -297,8 +302,10 @@ class _FacebookLinkedInCard extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Divider(color: scheme.outlineVariant),
-            const Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
+            const Wrap(
+              alignment: WrapAlignment.spaceAround,
+              spacing: 12,
+              runSpacing: 8,
               children: [
                 _SocialAction(icon: Icons.thumb_up_alt_outlined, label: 'Like'),
                 _SocialAction(
@@ -346,7 +353,7 @@ class _XShareCard extends StatelessWidget {
                   radius: 17,
                   backgroundColor: scheme.onSurface,
                   child: Text(
-                    '𝕏',
+                    'X',
                     style: TextStyle(color: scheme.surface, fontSize: 19),
                   ),
                 ),
@@ -419,8 +426,10 @@ class _XShareCard extends StatelessWidget {
             const SizedBox(height: 7),
             Text('Card type: $cardType', style: theme.textTheme.labelSmall),
             const SizedBox(height: 8),
-            const Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
+            const Wrap(
+              alignment: WrapAlignment.spaceAround,
+              spacing: 12,
+              runSpacing: 8,
               children: [
                 _SocialAction(icon: Icons.chat_bubble_outline, label: 'Reply'),
                 _SocialAction(icon: Icons.repeat_rounded, label: 'Repost'),
@@ -458,19 +467,35 @@ class _NetworkShareImage extends StatelessWidget {
     );
   }
 
-  Widget _fallback(ColorScheme scheme) => Container(
-    color: scheme.surfaceContainerHighest,
-    child: Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.image_outlined, size: 38, color: scheme.onSurfaceVariant),
-          const SizedBox(height: 4),
-          Text(
-            'Share image preview',
-            style: TextStyle(color: scheme.onSurfaceVariant),
+  Widget _fallback(ColorScheme scheme) => Semantics(
+    label: 'Share image preview',
+    image: true,
+    excludeSemantics: true,
+    child: Container(
+      color: scheme.surfaceContainerHighest,
+      child: LayoutBuilder(
+        builder: (context, constraints) => Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.image_outlined,
+                size: 38,
+                color: scheme.onSurfaceVariant,
+              ),
+              if (constraints.maxHeight >
+                  MediaQuery.textScalerOf(context).scale(48) + 48) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Share image preview',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: scheme.onSurfaceVariant),
+                ),
+              ],
+            ],
           ),
-        ],
+        ),
       ),
     ),
   );

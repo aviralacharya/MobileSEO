@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 enum VitalRating { good, needsImprovement, poor, unavailable }
 
@@ -26,6 +27,7 @@ class PageSpeedReport {
     required this.usedOriginData,
     required this.finalUrl,
     required this.analysisTime,
+    this.isCached = false,
   });
 
   final int? performanceScore;
@@ -35,8 +37,12 @@ class PageSpeedReport {
   final bool usedOriginData;
   final String? finalUrl;
   final DateTime? analysisTime;
+  final bool isCached;
 
-  factory PageSpeedReport.fromJson(Map<String, dynamic> json) {
+  factory PageSpeedReport.fromJson(
+    Map<String, dynamic> json, {
+    bool isCached = false,
+  }) {
     final lighthouse = _map(json['lighthouseResult']);
     final audits = _map(lighthouse['audits']);
     final categories = _map(lighthouse['categories']);
@@ -128,13 +134,37 @@ class PageSpeedReport {
       analysisTime: DateTime.tryParse(
         json['analysisUTCTimestamp'] as String? ?? '',
       ),
+      isCached: isCached,
     );
   }
+
+  Map<String, dynamic> toCacheJson() => {
+    'performanceScore': performanceScore,
+    'lcp': _metricCacheJson(lcp),
+    'cls': _metricCacheJson(cls),
+    'inp': _metricCacheJson(inp),
+    'usedOriginData': usedOriginData,
+    'finalUrl': finalUrl,
+    'analysisTime': analysisTime?.toIso8601String(),
+  };
+
+  factory PageSpeedReport.fromCacheJson(Map<String, dynamic> json) =>
+      PageSpeedReport(
+        performanceScore: json['performanceScore'] as int?,
+        lcp: _metricFromCache(json['lcp']),
+        cls: _metricFromCache(json['cls']),
+        inp: _metricFromCache(json['inp']),
+        usedOriginData: json['usedOriginData'] as bool? ?? false,
+        finalUrl: json['finalUrl'] as String?,
+        analysisTime: DateTime.tryParse(json['analysisTime'] as String? ?? ''),
+        isCached: true,
+      );
 }
 
 class PageSpeedInsightsException implements Exception {
-  const PageSpeedInsightsException(this.message);
+  const PageSpeedInsightsException(this.message, {this.quotaExceeded = false});
   final String message;
+  final bool quotaExceeded;
   @override
   String toString() => message;
 }
@@ -149,8 +179,27 @@ class PageSpeedInsightsService {
   final http.Client _client;
   final bool _ownsClient;
   final Duration timeout;
+  bool _closed = false;
+  static const _freshCacheAge = Duration(hours: 24);
+  static const _staleCacheAge = Duration(days: 30);
+  static int _cacheGeneration = 0;
+  static Future<void> _cacheWrites = Future.value();
 
-  Future<PageSpeedReport> analyze(String targetUrl) async {
+  Future<PageSpeedReport> analyze(
+    String targetUrl, {
+    bool forceRefresh = false,
+  }) async {
+    final cacheGeneration = _cacheGeneration;
+    final cached = await _readCache(targetUrl);
+    if (_closed) {
+      throw const PageSpeedInsightsException('PageSpeed check cancelled.');
+    }
+    if (!forceRefresh &&
+        cached != null &&
+        DateTime.now().difference(cached.savedAt) <= _freshCacheAge) {
+      return cached.report;
+    }
+
     final uri = Uri.https(
       'www.googleapis.com',
       '/pagespeedonline/v5/runPagespeed',
@@ -176,6 +225,10 @@ class PageSpeedInsightsService {
       );
     }
 
+    if (_closed) {
+      throw const PageSpeedInsightsException('PageSpeed check cancelled.');
+    }
+
     Map<String, dynamic> body;
     try {
       body = Map<String, dynamic>.from(
@@ -191,8 +244,18 @@ class PageSpeedInsightsService {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final apiError = _map(body['error']);
       final message = apiError['message'] as String?;
+      final quotaExceeded = _isQuotaResponse(response.statusCode, body);
+      if (quotaExceeded &&
+          cached != null &&
+          DateTime.now().difference(cached.savedAt) <= _staleCacheAge) {
+        return cached.report;
+      }
       throw PageSpeedInsightsException(
-        message ?? 'PageSpeed Insights returned HTTP ${response.statusCode}.',
+        quotaExceeded
+            ? 'Google PageSpeed Insights has temporarily reached its free request limit.'
+            : message ??
+                  'PageSpeed Insights returned HTTP ${response.statusCode}.',
+        quotaExceeded: quotaExceeded,
       );
     }
 
@@ -201,12 +264,131 @@ class PageSpeedInsightsService {
         'PageSpeed Insights did not include a Lighthouse result for this URL.',
       );
     }
-    return PageSpeedReport.fromJson(body);
+    final report = PageSpeedReport.fromJson(body);
+    await _writeCache(targetUrl, report, cacheGeneration);
+    return report;
+  }
+
+  Future<_CachedPageSpeedReport?> _readCache(String targetUrl) async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final encoded = preferences.getString(_cacheKey(targetUrl));
+      if (encoded == null) return null;
+      final cache = Map<String, dynamic>.from(jsonDecode(encoded) as Map);
+      if (cache['targetUrl'] != null && cache['targetUrl'] != targetUrl) {
+        return null;
+      }
+      final savedAt = DateTime.tryParse(cache['savedAt'] as String? ?? '');
+      final reportJson = cache['report'];
+      if (savedAt == null || reportJson is! Map) return null;
+      return _CachedPageSpeedReport(
+        PageSpeedReport.fromCacheJson(Map<String, dynamic>.from(reportJson)),
+        savedAt,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _writeCache(
+    String targetUrl,
+    PageSpeedReport report,
+    int generation,
+  ) async {
+    try {
+      await _cacheOperation(() async {
+        if (_closed || generation != _cacheGeneration) return;
+        final preferences = await SharedPreferences.getInstance();
+        if (_closed || generation != _cacheGeneration) return;
+        await preferences.setString(
+          _cacheKey(targetUrl),
+          jsonEncode({
+            'targetUrl': targetUrl,
+            'savedAt': DateTime.now().toIso8601String(),
+            'report': report.toCacheJson(),
+          }),
+        );
+      });
+    } catch (_) {
+      // A successful live report should remain usable if local storage is full.
+    }
+  }
+
+  static Future<void> _cacheOperation(Future<void> Function() operation) {
+    final next = _cacheWrites.then((_) => operation());
+    _cacheWrites = next.catchError((Object _) {});
+    return next;
+  }
+
+  static Future<int> cachedReportCount() async {
+    final preferences = await SharedPreferences.getInstance();
+    return preferences
+        .getKeys()
+        .where((key) => key.startsWith('pagespeed_report_'))
+        .length;
+  }
+
+  static Future<void> clearCache() {
+    _cacheGeneration++;
+    return _cacheOperation(() async {
+      final preferences = await SharedPreferences.getInstance();
+      for (final key in preferences.getKeys().where(
+        (key) => key.startsWith('pagespeed_report_'),
+      )) {
+        final removed = await preferences.remove(key);
+        if (!removed) throw StateError('A cached report could not be removed.');
+      }
+    });
+  }
+
+  static String _cacheKey(String targetUrl) {
+    var hash = 0x811c9dc5;
+    for (final unit in targetUrl.trim().codeUnits) {
+      hash = ((hash ^ unit) * 0x01000193) & 0xffffffff;
+    }
+    return 'pagespeed_report_${hash.toRadixString(16)}';
+  }
+
+  static bool _isQuotaResponse(int statusCode, Map<String, dynamic> body) {
+    final error = _map(body['error']);
+    final text = '${error['message'] ?? ''} ${error['status'] ?? ''}'
+        .toLowerCase();
+    return statusCode == 429 ||
+        text.contains('quota') ||
+        text.contains('resource_exhausted') ||
+        text.contains('ratelimitexceeded');
   }
 
   void close() {
+    _closed = true;
     if (_ownsClient) _client.close();
   }
+}
+
+class _CachedPageSpeedReport {
+  const _CachedPageSpeedReport(this.report, this.savedAt);
+  final PageSpeedReport report;
+  final DateTime savedAt;
+}
+
+Map<String, dynamic> _metricCacheJson(WebVitalMetric metric) => {
+  'value': metric.value,
+  'rating': metric.rating.name,
+  'source': metric.source,
+};
+
+WebVitalMetric _metricFromCache(Object? value) {
+  final json = _map(value);
+  final ratingName = json['rating'] as String?;
+  final rating = VitalRating.values.firstWhere(
+    (item) => item.name == ratingName,
+    orElse: () => VitalRating.unavailable,
+  );
+  return WebVitalMetric(
+    value: _number(json['value']),
+    rating: rating,
+    source: json['source'] as String? ?? 'Saved PageSpeed result',
+  );
 }
 
 Map<String, dynamic> _map(Object? value) =>

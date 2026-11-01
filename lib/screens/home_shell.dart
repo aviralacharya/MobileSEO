@@ -1,102 +1,80 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
-import '../services/seo_audit_service.dart';
+import '../controllers/audit_controller.dart';
+import '../controllers/workspace_controller.dart';
+import '../services/app_settings.dart';
 import '../services/audit_history_service.dart';
-import '../services/seo_extractor.dart';
-import '../services/seo_scraper_service.dart';
-import '../services/site_files_checker.dart';
+import '../services/audit_review.dart';
 import '../utils/url_validator.dart';
-import '../widgets/app_sheet.dart';
-import '../widgets/audit_history_widgets.dart';
+import '../widgets/project_editor.dart';
+import '../widgets/report_export_sheet.dart';
 import 'audit_dashboard_screen.dart';
-import 'competitor_compare_screen.dart';
-import 'serp_preview_screen.dart';
+import 'projects_screen.dart';
+import 'settings_screen.dart';
+import 'tools_screen.dart';
 
-/// Root of the app: three destinations plus the audit state they share.
+/// Stateful destinations share an owned audit run and an on-device workspace.
 class HomeShell extends StatefulWidget {
-  const HomeShell({super.key});
-
+  const HomeShell({super.key, this.workspace, this.audit});
+  final WorkspaceController? workspace;
+  final AuditController? audit;
   @override
   State<HomeShell> createState() => _HomeShellState();
 }
 
 class _HomeShellState extends State<HomeShell> {
-  final TextEditingController _urlController = TextEditingController();
-  final SiteFilesChecker _siteFilesChecker = SiteFilesChecker();
-  static const SeoAuditService _auditService = SeoAuditService();
-  final AuditHistoryService _historyService = AuditHistoryService();
-  final PageController _pageController = PageController();
-  List<AuditHistoryEntry> _history = const [];
-
-  /// Labels of the checklist items ticked in the Overview tab.
-  final Set<String> _checkedFixes = <String>{};
-
-  int _destination = 0;
-  int _tabIndex = 0;
-  bool _isLoading = false;
+  final _urlController = TextEditingController();
+  final _pageController = PageController();
+  late final _workspace = widget.workspace ?? WorkspaceController();
+  late final _audit = widget.audit ?? AuditController(workspace: _workspace);
+  late final _changes = Listenable.merge([_workspace, _audit]);
+  final Set<String> _sampleFixes = {};
+  int _destination = 0, _tabIndex = 0, _projectsTab = 0;
   String? _urlError;
-  String? _errorMessage;
-  SeoErrorKind? _errorKind;
-  SeoAuditResult? _result;
-  SiteFilesReport? _siteFiles;
+  AuditPhase _previousPhase = AuditPhase.idle;
+  AppSettings _settings = AppSettings.instance;
 
   @override
   void initState() {
     super.initState();
-    _loadHistory();
+    _workspace.load().ignore();
+    _audit.addListener(_auditChanged);
   }
 
-  Future<void> _loadHistory() async {
-    try {
-      final items = await _historyService.load();
-      if (mounted) setState(() => _history = items);
-    } catch (_) {}
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _settings = SettingsScope.of(context);
   }
 
-  Future<void> _openHistory() async {
-    final picked = await AppSheet.show<AuditHistoryEntry>(
-      context: context,
-      builder: (context) => SizedBox(
-        height: MediaQuery.sizeOf(context).height * .78,
-        child: AuditHistoryList(
-          entries: _history,
-          onDelete: (id) async {
-            final items = await _historyService.delete(id);
-            if (mounted) setState(() => _history = items);
-            return items;
-          },
-        ),
-      ),
-    );
-    if (picked == null || !mounted) return;
-    setState(() {
-      _result = picked.result;
-      _siteFiles = picked.siteFiles;
-      _urlController.text = picked.result.url;
-      _destination = 0;
-      _tabIndex = 0;
-      _errorMessage = null;
-      _errorKind = null;
-      _urlError = null;
-      _checkedFixes.clear();
-    });
-    if (_pageController.hasClients) _pageController.jumpToPage(0);
+  void _auditChanged() {
+    if (_audit.phase == AuditPhase.complete &&
+        _previousPhase != AuditPhase.complete &&
+        _audit.source == AuditSource.live) {
+      _settings.feedback(completed: true);
+    }
+    _previousPhase = _audit.phase;
   }
 
   @override
   void dispose() {
-    _pageController.dispose();
+    _audit.removeListener(_auditChanged);
+    if (widget.audit == null) _audit.dispose();
+    if (widget.workspace == null) _workspace.dispose();
     _urlController.dispose();
-    _siteFilesChecker.close();
+    _pageController.dispose();
     super.dispose();
   }
 
   void _selectDestination(int index) {
     if (index == _destination) return;
     FocusScope.of(context).unfocus();
+    _settings.feedback();
     setState(() => _destination = index);
-    if (_pageController.hasClients) {
+    if (!_pageController.hasClients) return;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _pageController.jumpToPage(index);
+    } else {
       _pageController.animateToPage(
         index,
         duration: const Duration(milliseconds: 280),
@@ -105,208 +83,265 @@ class _HomeShellState extends State<HomeShell> {
     }
   }
 
-  Future<void> _runAudit() async {
-    if (_isLoading) return;
+  void _openHistory() {
+    setState(() => _projectsTab = 1);
+    _selectDestination(1);
+  }
 
-    // 1. Validate locally — bad input never reaches the network.
-    final validation = UrlValidator.validate(_urlController.text);
-    if (!validation.isValid) {
-      setState(() {
-        _urlError = validation.message;
-        _errorMessage = null;
-        _errorKind = null;
-      });
-      return;
-    }
-
-    FocusScope.of(context).unfocus();
+  void _openAudit(AuditHistoryEntry entry) {
+    _audit.restore(entry);
+    _urlController.text = entry.result.url;
     setState(() {
-      _isLoading = true;
       _urlError = null;
-      _errorMessage = null;
-      _errorKind = null;
-      _siteFiles = null;
-      _checkedFixes.clear();
       _tabIndex = 0;
     });
+    _selectDestination(0);
+  }
 
-    // The two crawl-file checks only need the host, so they can run while the
-    // page itself is still downloading.
-    final filesFuture = _siteFilesChecker.check(validation.uri!);
+  Future<void> _runAudit() async {
+    if (_audit.running) return;
+    final validation = UrlValidator.validate(_urlController.text);
+    if (!validation.isValid) {
+      setState(() => _urlError = validation.message);
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    _urlController.text = validation.uri.toString();
+    setState(() {
+      _urlError = null;
+      _tabIndex = 0;
+    });
+    await _audit.run(validation.uri!);
+  }
 
+  void _auditUrl(String url) {
+    _audit.cancel();
+    _urlController.text = url;
+    _selectDestination(0);
+    _runAudit();
+  }
+
+  void _showSample() {
+    _sampleFixes.clear();
+    _audit.showSample();
+    _urlController.clear();
+    setState(() {
+      _tabIndex = 0;
+      _urlError = null;
+    });
+    _selectDestination(0);
+  }
+
+  Future<void> _mutate(Future<void> Function() action) async {
     try {
-      // 2. extractSeo never throws: timeouts, 404s, 500s, blocked sites and
-      //    non-HTML responses all come back as a failed snapshot.
-      final snapshot = await extractSeo(validation.uri.toString());
-      if (!mounted) return;
-
-      if (!snapshot.isSuccess) {
-        setState(() {
-          _result = null;
-          _errorMessage = snapshot.error;
-          _errorKind = snapshot.errorKind;
-        });
-        _showErrorSnackBar(
-          snapshot.error ?? 'The audit could not be completed.',
-          retryable: _isRetryable(snapshot.errorKind),
-        );
-        return;
-      }
-
-      final siteFiles = await filesFuture;
-      if (!mounted) return;
-      final audited = _auditService.analyzeSnapshot(snapshot);
-      setState(() {
-        _result = audited;
-        _siteFiles = siteFiles;
-        _errorMessage = null;
-        _errorKind = null;
-      });
-      try {
-        final items = await _historyService.add(audited, siteFiles);
-        if (mounted) setState(() => _history = items);
-      } catch (error) {
-        debugPrint('Could not save history: $error');
-      }
-      HapticFeedback.mediumImpact();
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _result = null;
-        _errorMessage = 'Something went wrong while auditing this page.';
-        _errorKind = SeoErrorKind.unknown;
-      });
-      _showErrorSnackBar('Something went wrong while auditing this page.');
-      debugPrint('Audit failed: $error');
-    } finally {
+      await action();
+      _settings.feedback();
+    } catch (_) {
       if (mounted) {
-        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not save this change. Please try again.'),
+          ),
+        );
       }
     }
   }
 
-  /// Transient problems are worth another attempt; a 404 or a block is not.
-  static bool _isRetryable(SeoErrorKind? kind) {
-    return kind == null ||
-        kind == SeoErrorKind.timeout ||
-        kind == SeoErrorKind.network ||
-        kind == SeoErrorKind.serverError;
+  void _toggleFix(String finding) {
+    final result = _audit.result;
+    if (result == null) return;
+    if (_audit.source == AuditSource.sample) {
+      setState(() {
+        if (!_sampleFixes.remove(finding)) _sampleFixes.add(finding);
+      });
+      _settings.feedback();
+    } else {
+      _mutate(() => _workspace.toggleFinding(result.url, finding));
+    }
   }
 
-  void _showErrorSnackBar(String message, {bool retryable = false}) {
-    final messenger = ScaffoldMessenger.of(context);
-    messenger
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(message),
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.all(16),
-          duration: const Duration(seconds: 6),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          action: retryable
-              ? SnackBarAction(label: 'Retry', onPressed: _runAudit)
-              : null,
-        ),
-      );
-  }
-
-  void _toggleFix(String label) {
-    HapticFeedback.lightImpact();
-    setState(() {
-      if (!_checkedFixes.remove(label)) {
-        _checkedFixes.add(label);
-      }
-    });
+  void _resetFixes() {
+    if (_audit.source == AuditSource.sample) {
+      setState(_sampleFixes.clear);
+    } else if (_audit.result != null) {
+      _mutate(() => _workspace.resetFindings(_audit.result!.url));
+    }
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: PageView(
-        controller: _pageController,
-        physics: const NeverScrollableScrollPhysics(),
-        onPageChanged: (index) {
-          if (index != _destination) setState(() => _destination = index);
-        },
-        children: [
-          _KeepAlivePage(
-            enabled: _destination == 0,
-            child: AuditDashboardScreen(
-              urlController: _urlController,
-              isLoading: _isLoading,
-              urlError: _urlError,
-              errorMessage: _errorMessage,
-              canRetry: _isRetryable(_errorKind),
-              result: _result,
-              siteFiles: _siteFiles,
-              checkedFixes: _checkedFixes,
-              tabIndex: _tabIndex,
-              onRun: _runAudit,
-              history: _history,
-              onOpenHistory: _openHistory,
-              onRetry: _runAudit,
-              onUrlEdited: () {
-                if (_urlError != null) setState(() => _urlError = null);
-              },
-              onToggleFix: _toggleFix,
-              onResetFixes: () => setState(_checkedFixes.clear),
-              onTabChanged: (index) {
-                if (index != _tabIndex) setState(() => _tabIndex = index);
-              },
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: _changes,
+    builder: (context, _) {
+      final result = _audit.result;
+      final sample = _audit.source == AuditSource.sample;
+      final project = result == null || sample
+          ? null
+          : _workspace.projectFor(result.url);
+      final previous = result == null || _audit.auditedAt == null
+          ? null
+          : _workspace.previousFor(result.url, _audit.auditedAt!);
+      final history = result == null
+          ? <AuditHistoryEntry>[]
+          : _workspace.historyFor(result.url);
+      final canTrack =
+          _audit.source != AuditSource.saved ||
+          (history.isNotEmpty && history.first.id == _audit.entryId);
+      final unresolved = result == null
+          ? <String>{}
+          : reviewAudit(result)
+                .where((finding) => !finding.passed)
+                .map((finding) => finding.id)
+                .toSet();
+      final fixes = sample
+          ? _sampleFixes
+          : canTrack
+          ? (project?.inProgress ?? <String>{}).intersection(unresolved)
+          : <String>{};
+      return Scaffold(
+        body: PageView(
+          controller: _pageController,
+          physics: const NeverScrollableScrollPhysics(),
+          children: [
+            _KeepAlivePage(
+              enabled: _destination == 0,
+              child: AuditDashboardScreen(
+                urlController: _urlController,
+                isLoading: _audit.running,
+                urlError: _urlError,
+                errorMessage: _audit.errorMessage,
+                canRetry: _audit.canRetry,
+                result: result,
+                siteFiles: _audit.siteFiles,
+                checkedFixes: fixes,
+                tabIndex: _tabIndex,
+                onRun: _runAudit,
+                history: sample ? const [] : _workspace.history,
+                onOpenHistory: _openHistory,
+                onRetry: _runAudit,
+                onUrlEdited: () {
+                  if (_urlError != null) setState(() => _urlError = null);
+                },
+                onToggleFix: _toggleFix,
+                onResetFixes: _resetFixes,
+                onTabChanged: (index) {
+                  if (index != _tabIndex) setState(() => _tabIndex = index);
+                },
+                phase: _audit.phase,
+                source: _audit.source,
+                auditedAt: _audit.auditedAt,
+                previousAudit: previous,
+                siteFilesLoading: _audit.filesLoading,
+                siteFilesError: _audit.filesError,
+                saveWarning: _audit.saveError,
+                isSaving: _audit.saving,
+                onCancel: _audit.cancel,
+                onRetryFiles: _audit.retryFiles,
+                onRetrySave: _audit.retrySave,
+                onLoadSample: _showSample,
+                onSaveProject: result == null || sample
+                    ? null
+                    : () => showProjectEditor(
+                        context,
+                        _workspace,
+                        project: project,
+                        initialUrl: result.url,
+                      ),
+                onReaudit: result == null || sample
+                    ? null
+                    : () => _auditUrl(result.url),
+                projectName: project?.name ?? '',
+                isSavedProject: project != null,
+                canTrackFixes: canTrack,
+              ),
             ),
-          ),
-          _KeepAlivePage(
-            enabled: _destination == 1,
-            child: SerpPreviewScreen(
-              result: _result,
-              onGoToAudit: () => _selectDestination(0),
+            _KeepAlivePage(
+              enabled: _destination == 1,
+              child: ProjectsScreen(
+                workspace: _workspace,
+                onAudit: _auditUrl,
+                onOpenAudit: _openAudit,
+                tabIndex: _projectsTab,
+                onTabChanged: (index) {
+                  if (index != _projectsTab) {
+                    setState(() => _projectsTab = index);
+                  }
+                },
+              ),
             ),
-          ),
-          _KeepAlivePage(
-            enabled: _destination == 2,
-            child: CompetitorCompareScreen(
-              result: _result,
-              onGoToAudit: () => _selectDestination(0),
+            _KeepAlivePage(
+              enabled: _destination == 2,
+              child: ToolsScreen(
+                active: _destination == 2,
+                result: result,
+                isSample: sample,
+                onGoToAudit: () => _selectDestination(0),
+                onSample: _showSample,
+                onOpenTab: (index) {
+                  setState(() => _tabIndex = index);
+                  _selectDestination(0);
+                },
+                onReport: result == null
+                    ? null
+                    : () => showReportExport(
+                        context,
+                        result: result,
+                        source: switch (_audit.source) {
+                          AuditSource.live => 'Live audit',
+                          AuditSource.saved => 'Saved snapshot',
+                          AuditSource.sample => 'Sample audit',
+                        },
+                        auditedAt: _audit.auditedAt,
+                        before: previous,
+                        siteFiles: _audit.siteFiles,
+                        inProgress: fixes,
+                        projectName: project?.name ?? '',
+                      ),
+              ),
             ),
-          ),
-        ],
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _destination,
-        onDestinationSelected: _selectDestination,
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.insights_outlined),
-            selectedIcon: Icon(Icons.insights_rounded),
-            label: 'Dashboard',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.search_outlined),
-            selectedIcon: Icon(Icons.search_rounded),
-            label: 'Previews',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.compare_arrows_outlined),
-            selectedIcon: Icon(Icons.compare_arrows_rounded),
-            label: 'Compare',
-          ),
-        ],
-      ),
-    );
-  }
+            _KeepAlivePage(
+              enabled: _destination == 3,
+              child: SettingsScreen(workspace: _workspace),
+            ),
+          ],
+        ),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: _destination,
+          onDestinationSelected: _selectDestination,
+          animationDuration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : const Duration(milliseconds: 280),
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.insights_outlined),
+              selectedIcon: Icon(Icons.insights_rounded),
+              label: 'Dashboard',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.folder_outlined),
+              selectedIcon: Icon(Icons.folder_rounded),
+              label: 'Projects',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.grid_view_outlined),
+              selectedIcon: Icon(Icons.grid_view_rounded),
+              label: 'Tools',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.settings_outlined),
+              selectedIcon: Icon(Icons.settings_rounded),
+              label: 'Settings',
+            ),
+          ],
+        ),
+      );
+    },
+  );
 }
 
-/// Keeps a destination alive while it is off-screen and pauses its tickers so
-/// background shimmer/gauge animations do not keep repainting.
 class _KeepAlivePage extends StatefulWidget {
   const _KeepAlivePage({required this.child, required this.enabled});
-
   final Widget child;
   final bool enabled;
-
   @override
   State<_KeepAlivePage> createState() => _KeepAlivePageState();
 }
@@ -315,7 +350,6 @@ class _KeepAlivePageState extends State<_KeepAlivePage>
     with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
-
   @override
   Widget build(BuildContext context) {
     super.build(context);

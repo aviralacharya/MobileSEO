@@ -16,7 +16,8 @@ void main() {
   const service = SeoAuditService();
 
   test('passes a well-optimised page', () {
-    final result = service.analyze(_page('''
+    final result = service.analyze(
+      _page('''
       <html>
         <head>
           <title>A perfectly sized page title for search results</title>
@@ -34,7 +35,8 @@ void main() {
           <h3>Sub section</h3>
         </body>
       </html>
-    '''));
+    '''),
+    );
 
     expect(result.title, startsWith('A perfectly sized'));
     expect(result.h1Count, 1);
@@ -50,7 +52,9 @@ void main() {
   });
 
   test('flags a page with no meta tags, headings or schema', () {
-    final result = service.analyze(_page('<html><body><p>Hello</p></body></html>'));
+    final result = service.analyze(
+      _page('<html><body><p>Hello</p></body></html>'),
+    );
 
     expect(result.title, isNull);
     expect(result.description, isNull);
@@ -58,7 +62,9 @@ void main() {
     expect(result.hasSchema, isFalse);
     expect(result.score, lessThan(50));
     expect(
-      result.checks.take(4).every((check) => check.status == AuditStatus.warning),
+      result.checks
+          .take(4)
+          .every((check) => check.status == AuditStatus.warning),
       isTrue,
     );
     // No images means nothing to penalise.
@@ -71,34 +77,40 @@ void main() {
 
   test('warns when the title is too long', () {
     final longTitle = 'x' * 80;
-    final result = service.analyze(_page(
-      '<html><head><title>$longTitle</title></head>'
-      '<body><h1>Hi</h1></body></html>',
-    ));
+    final result = service.analyze(
+      _page(
+        '<html><head><title>$longTitle</title></head>'
+        '<body><h1>Hi</h1></body></html>',
+      ),
+    );
 
     expect(result.checks.first.status, AuditStatus.warning);
     expect(result.checks.first.note, contains('80 characters'));
   });
 
   test('detects microdata when JSON-LD is absent', () {
-    final result = service.analyze(_page(
-      '<html><body>'
-      '<div itemscope itemtype="https://schema.org/LocalBusiness">'
-      '<span itemprop="name">Acme</span></div>'
-      '</body></html>',
-    ));
+    final result = service.analyze(
+      _page(
+        '<html><body>'
+        '<div itemscope itemtype="https://schema.org/LocalBusiness">'
+        '<span itemprop="name">Acme</span></div>'
+        '</body></html>',
+      ),
+    );
 
     expect(result.schemaTypes, ['LocalBusiness']);
   });
 
   test('passes Open Graph tags through to the result', () {
-    final result = service.analyze(_page(
-      '<html><head>'
-      '<meta property="og:title" content="Example">'
-      '<meta property="og:description" content="A description">'
-      '<meta property="og:image" content="https://example.com/i.png">'
-      '</head><body><h1>Hi</h1></body></html>',
-    ));
+    final result = service.analyze(
+      _page(
+        '<html><head>'
+        '<meta property="og:title" content="Example">'
+        '<meta property="og:description" content="A description">'
+        '<meta property="og:image" content="https://example.com/i.png">'
+        '</head><body><h1>Hi</h1></body></html>',
+      ),
+    );
 
     expect(result.openGraph.isComplete, isTrue);
     expect(result.openGraph.title, 'Example');

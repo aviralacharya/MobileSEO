@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:shared_preferences/shared_preferences.dart';
-
+import '../utils/page_identity.dart';
+import 'local_store.dart';
 import 'content_analyzer.dart';
 import 'image_seo_checker.dart';
 import 'indexation_checker.dart';
@@ -29,57 +29,79 @@ class AuditHistoryEntry {
 }
 
 class AuditHistoryService {
+  AuditHistoryService({LocalStore? store})
+    : _store = store ?? PreferencesStore();
   static const _key = 'mobile_seo.audit_history.v1';
-  SharedPreferencesAsync? _prefs;
-
-  // Created lazily so constructing the service never touches the platform
-  // channel (important for tests and for the first frame).
-  SharedPreferencesAsync get _store => _prefs ??= SharedPreferencesAsync();
+  final LocalStore _store;
 
   Future<List<AuditHistoryEntry>> load() async {
-    final raw = await _store.getString(_key);
+    final raw = await _store.read(_key);
     if (raw == null || raw.isEmpty) return const [];
-    try {
-      final list = (jsonDecode(raw) as List)
-          .whereType<Map>()
-          .map((m) => _entryFromJson(Map<String, dynamic>.from(m)))
-          .toList();
-      list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      return list;
-    } catch (_) {
-      return const [];
+    final rows = jsonDecode(raw) as List;
+    final list = <AuditHistoryEntry>[];
+    for (final row in rows.whereType<Map>()) {
+      try {
+        list.add(_entryFromJson(Map<String, dynamic>.from(row)));
+      } on FormatException {
+        continue;
+      } on TypeError {
+        continue;
+      }
     }
+    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return list;
   }
 
   Future<List<AuditHistoryEntry>> add(
     SeoAuditResult result,
-    SiteFilesReport? files,
-  ) async {
-    final entries = await load();
-    final now = DateTime.now();
+    SiteFilesReport? files, {
+    DateTime? auditedAt,
+  }) async {
+    final entries = [...await load()];
+    final now = auditedAt ?? DateTime.now();
+    var id = '${now.microsecondsSinceEpoch}';
+    var suffix = 0;
+    while (entries.any((entry) => entry.id == id)) {
+      id = '${now.microsecondsSinceEpoch}-${++suffix}';
+    }
     entries.insert(
       0,
       AuditHistoryEntry(
-        id: '${now.microsecondsSinceEpoch}',
+        id: id,
         createdAt: now,
         result: result,
         siteFiles: files,
       ),
     );
     if (entries.length > 100) entries.removeRange(100, entries.length);
-    await _store.setString(
-      _key,
-      jsonEncode(entries.map(_entryToJson).toList()),
-    );
+    await _store.write(_key, jsonEncode(entries.map(_entryToJson).toList()));
     return entries;
   }
 
   Future<List<AuditHistoryEntry>> delete(String id) async {
     final entries = (await load()).where((e) => e.id != id).toList();
-    await _store.setString(
-      _key,
-      jsonEncode(entries.map(_entryToJson).toList()),
+    await _store.write(_key, jsonEncode(entries.map(_entryToJson).toList()));
+    return entries;
+  }
+
+  Future<void> clear() => _store.remove(_key);
+
+  Future<List<AuditHistoryEntry>> updateFiles(
+    String id,
+    SiteFilesReport files,
+  ) async {
+    final entries = await load();
+    final index = entries.indexWhere((entry) => entry.id == id);
+    // A user may have deleted the audit while the network request finished.
+    if (index < 0) return entries;
+    final previous = entries[index];
+    entries[index] = AuditHistoryEntry(
+      id: previous.id,
+      createdAt: previous.createdAt,
+      result: previous.result,
+      siteFiles: files,
     );
+    await _store.write(_key, jsonEncode(entries.map(_entryToJson).toList()));
     return entries;
   }
 
@@ -268,7 +290,7 @@ class AuditHistoryService {
       }).toList(),
     );
     return SeoAuditResult(
-      url: j['url'] as String,
+      url: parsePageUrl(j['url'] as String).toString(),
       title: str(j['title']),
       description: str(j['description']),
       headings: (j['headings'] as List).map((x) {

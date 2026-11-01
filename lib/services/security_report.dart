@@ -37,8 +37,9 @@ class SecurityReport {
             ?.trim();
         if (raw == null || raw.isEmpty) continue;
         final resolved = page.uri.resolve(raw);
-        if (resolved.scheme.toLowerCase() == 'http')
+        if (resolved.scheme.toLowerCase() == 'http') {
           mixed.add(resolved.toString());
+        }
       }
     }
     return SecurityReport(

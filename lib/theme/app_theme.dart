@@ -3,10 +3,6 @@ import 'package:flutter/material.dart';
 class AppTheme {
   const AppTheme._();
   static const Color seed = Color(0xFF3D5AFE);
-  static final ValueNotifier<ThemeMode> mode = ValueNotifier(ThemeMode.system);
-  static void toggle() => mode.value = mode.value == ThemeMode.dark
-      ? ThemeMode.light
-      : ThemeMode.dark;
 
   static ThemeData build(Brightness brightness) {
     final dark = brightness == Brightness.dark;
@@ -32,12 +28,15 @@ class AppTheme {
         );
     return ThemeData(
       useMaterial3: true,
+      visualDensity: VisualDensity.standard,
       colorScheme: scheme,
       scaffoldBackgroundColor: bg,
       appBarTheme: AppBarTheme(
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
+        toolbarHeight: kToolbarHeight,
+        titleSpacing: 16,
         backgroundColor: bg,
         surfaceTintColor: Colors.transparent,
       ),
@@ -76,10 +75,10 @@ class AppTheme {
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         insetPadding: const EdgeInsets.all(16),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-        backgroundColor: dark ? const Color(0xFF263449) : const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        backgroundColor: dark
+            ? const Color(0xFF263449)
+            : const Color(0xFF1E293B),
         contentTextStyle: const TextStyle(color: Colors.white),
         actionTextColor: const Color(0xFF8AB4F8),
       ),
@@ -115,10 +114,21 @@ class AppTheme {
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
+          minimumSize: const Size(48, 48),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
         ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
       ),
     );
   }

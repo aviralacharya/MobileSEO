@@ -20,30 +20,28 @@ class UrlValidator {
   UrlValidator._();
 
   static final RegExp _schemePattern = RegExp(r'^[a-zA-Z][a-zA-Z0-9+.\-]*:');
-  static final RegExp _hostWithPortPattern =
-      RegExp(r'^[a-zA-Z0-9.\-]+:\d{1,5}(?:[/?#]|$)');
-  static final RegExp _domainPattern =
-      RegExp(r'^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$');
+  static final RegExp _hostWithPortPattern = RegExp(
+    r'^[a-zA-Z0-9.\-]+:\d{1,5}(?:[/?#]|$)',
+  );
+  static final RegExp _domainPattern = RegExp(
+    r'^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$',
+  );
   static final RegExp _ipv4Pattern = RegExp(r'^(\d{1,3}\.){3}\d{1,3}$');
 
   static UrlValidationResult validate(String input) {
     final text = input.trim();
 
     if (text.isEmpty) {
-      return const UrlValidationResult.invalid(
-        'Enter a website URL to audit.',
-      );
+      return const UrlValidationResult.invalid('Enter a website URL to audit.');
     }
     if (RegExp(r'\s').hasMatch(text)) {
-      return const UrlValidationResult.invalid(
-        'URLs cannot contain spaces.',
-      );
+      return const UrlValidationResult.invalid('URLs cannot contain spaces.');
     }
 
     // "localhost:3000" looks like a scheme but is a host + port, so only
     // treat the prefix as a scheme when it is not host:port shaped.
-    final hasExplicitScheme = _schemePattern.hasMatch(text) &&
-        !_hostWithPortPattern.hasMatch(text);
+    final hasExplicitScheme =
+        _schemePattern.hasMatch(text) && !_hostWithPortPattern.hasMatch(text);
     final candidate = hasExplicitScheme ? text : 'https://$text';
     final uri = Uri.tryParse(candidate);
     if (uri == null) {

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
 import '../services/seo_audit_service.dart';
 import '../services/seo_scraper_service.dart';
@@ -6,16 +7,19 @@ import '../services/site_files_checker.dart';
 import '../utils/url_validator.dart';
 import '../widgets/app_widgets.dart';
 import '../widgets/audit_cards.dart';
-import 'legal_pages.dart';
 
 class CompetitorCompareScreen extends StatefulWidget {
   const CompetitorCompareScreen({
     super.key,
     required this.result,
     required this.onGoToAudit,
+    this.onBack,
+    this.isSample = false,
   });
   final SeoAuditResult? result;
   final VoidCallback onGoToAudit;
+  final VoidCallback? onBack;
+  final bool isSample;
   @override
   State<CompetitorCompareScreen> createState() =>
       _CompetitorCompareScreenState();
@@ -25,7 +29,9 @@ class _CompetitorCompareScreenState extends State<CompetitorCompareScreen> {
   static const _audit = SeoAuditService();
   final _yourUrl = TextEditingController();
   final _competitorUrl = TextEditingController();
-  final _files = SiteFilesChecker();
+  http.Client? _client;
+  int _generation = 0;
+  String _stage = '';
   SeoAuditResult? _your, _competitor;
   SiteFilesReport? _yourFiles, _competitorFiles;
   String? _error;
@@ -34,18 +40,26 @@ class _CompetitorCompareScreenState extends State<CompetitorCompareScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.result != null) _yourUrl.text = widget.result!.url;
+    if (widget.result != null && !widget.isSample) {
+      _yourUrl.text = widget.result!.url;
+    }
   }
 
   @override
   void didUpdateWidget(covariant CompetitorCompareScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.result?.url != widget.result?.url) {
+    if (!identical(oldWidget.result, widget.result)) {
+      _generation++;
+      _client?.close();
+      _loading = false;
+      _error = null;
       _your = null;
       _competitor = null;
       _yourFiles = null;
       _competitorFiles = null;
-      if (widget.result != null) _yourUrl.text = widget.result!.url;
+      if (widget.result != null && !widget.isSample) {
+        _yourUrl.text = widget.result!.url;
+      }
     }
   }
 
@@ -53,7 +67,8 @@ class _CompetitorCompareScreenState extends State<CompetitorCompareScreen> {
   void dispose() {
     _yourUrl.dispose();
     _competitorUrl.dispose();
-    _files.close();
+    _generation++;
+    _client?.close();
     super.dispose();
   }
 
@@ -70,45 +85,69 @@ class _CompetitorCompareScreenState extends State<CompetitorCompareScreen> {
       return;
     }
     FocusScope.of(context).unfocus();
+    final generation = ++_generation;
+    final client = http.Client();
+    _client = client;
+    bool current() => mounted && generation == _generation;
     setState(() {
       _loading = true;
       _error = null;
+      _your = _competitor = null;
+      _yourFiles = _competitorFiles = null;
+      _stage = 'Fetching both pages…';
     });
     try {
+      final scraper = SeoScraperService(client: client);
       final pages = await Future.wait([
-        _audit.audit(a.uri!.toString()),
-        _audit.audit(b.uri!.toString()),
+        scraper.fetchDocument(a.uri!.toString()),
+        scraper.fetchDocument(b.uri!.toString()),
       ]);
-      final files = await Future.wait([
-        _files.check(a.uri!),
-        _files.check(b.uri!),
-      ]);
-      if (!mounted) return;
+      if (!current()) return;
       setState(() {
-        _your = pages[0];
-        _competitor = pages[1];
+        _your = _audit.analyze(pages[0]);
+        _competitor = _audit.analyze(pages[1]);
+        _stage = 'On-page results ready · Checking site files…';
+      });
+      final checker = SiteFilesChecker(client: client);
+      final files = await Future.wait([
+        checker.check(pages[0].uri),
+        checker.check(pages[1].uri),
+      ]);
+      if (!current()) return;
+      setState(() {
         _yourFiles = files[0];
         _competitorFiles = files[1];
       });
     } catch (e) {
-      if (mounted) {
+      if (current()) {
         setState(
           () => _error = e is SeoScrapeException ? e.userMessage : 'Could not compare these websites. Check both URLs and try again.',
         );
       }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      client.close();
+      if (identical(_client, client)) _client = null;
+      if (current()) setState(() => _loading = false);
     }
+  }
+
+  void _cancel() {
+    _generation++;
+    _client?.close();
+    _client = null;
+    setState(() {
+      _loading = false;
+      _error = 'Comparison cancelled. You can run it again when ready.';
+    });
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      actions: const [ThemeModeToggle(), LegalMenuButton()],
-      title: const BrandTitle(
-        title: 'Competitor Compare',
-        icon: Icons.compare_arrows_rounded,
-      ),
+      leading: widget.onBack == null
+          ? null
+          : BackButton(onPressed: widget.onBack),
+      title: const BrandTitle(title: 'Competitor comparison'),
     ),
     body: SafeArea(
       child: ListView(
@@ -125,6 +164,9 @@ class _CompetitorCompareScreenState extends State<CompetitorCompareScreen> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: _yourUrl,
+                  enabled: !_loading,
+                  autocorrect: false,
+                  enableSuggestions: false,
                   keyboardType: TextInputType.url,
                   decoration: const InputDecoration(
                     labelText: 'Your Website URL',
@@ -135,6 +177,9 @@ class _CompetitorCompareScreenState extends State<CompetitorCompareScreen> {
                 const SizedBox(height: 10),
                 TextField(
                   controller: _competitorUrl,
+                  enabled: !_loading,
+                  autocorrect: false,
+                  enableSuggestions: false,
                   keyboardType: TextInputType.url,
                   decoration: const InputDecoration(
                     labelText: 'Competitor URL',
@@ -152,25 +197,33 @@ class _CompetitorCompareScreenState extends State<CompetitorCompareScreen> {
             ),
           ),
           if (_loading)
-            const Padding(
-              padding: EdgeInsets.all(20),
-              child: Center(child: CircularProgressIndicator()),
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  if (!MediaQuery.disableAnimationsOf(context))
+                    const LinearProgressIndicator(),
+                  const SizedBox(height: 8),
+                  Text(_stage),
+                  TextButton(
+                    onPressed: _cancel,
+                    child: const Text('Cancel comparison'),
+                  ),
+                ],
+              ),
             ),
           if (_error != null)
             Padding(
               padding: const EdgeInsets.only(top: 12),
               child: ErrorCard(message: _error!),
             ),
-          if (_your != null &&
-              _competitor != null &&
-              _yourFiles != null &&
-              _competitorFiles != null) ...[
+          if (_your != null && _competitor != null) ...[
             const SizedBox(height: 16),
             _Results(
               y: _your!,
               c: _competitor!,
-              yf: _yourFiles!,
-              cf: _competitorFiles!,
+              yf: _yourFiles,
+              cf: _competitorFiles,
             ),
           ],
         ],
@@ -187,7 +240,7 @@ class _Results extends StatelessWidget {
     required this.cf,
   });
   final SeoAuditResult y, c;
-  final SiteFilesReport yf, cf;
+  final SiteFilesReport? yf, cf;
   @override
   Widget build(BuildContext context) => SectionCard(
     child: Column(
@@ -227,6 +280,7 @@ class _Results extends StatelessWidget {
           c.score,
           max: 100,
           suffix: '/100',
+          highlightHigher: true,
         ),
         _CompareRow(
           context,
@@ -282,25 +336,30 @@ class _Results extends StatelessWidget {
           labelA: y.hasSchema ? 'Present' : 'Missing',
           labelB: c.hasSchema ? 'Present' : 'Missing',
           max: 1,
+          highlightHigher: true,
         ),
-        _CompareRow(
-          context,
-          'Robots.txt',
-          yf.robots.passed ? 1 : 0,
-          cf.robots.passed ? 1 : 0,
-          labelA: yf.robots.passed ? 'Found' : 'Missing',
-          labelB: cf.robots.passed ? 'Found' : 'Missing',
-          max: 1,
-        ),
-        _CompareRow(
-          context,
-          'Sitemap.xml',
-          yf.sitemap.passed ? 1 : 0,
-          cf.sitemap.passed ? 1 : 0,
-          labelA: yf.sitemap.passed ? 'Found' : 'Missing',
-          labelB: cf.sitemap.passed ? 'Found' : 'Missing',
-          max: 1,
-        ),
+        if (yf != null && cf != null)
+          _CompareRow(
+            context,
+            'Robots.txt',
+            yf!.robots.passed ? 1 : 0,
+            cf!.robots.passed ? 1 : 0,
+            labelA: yf!.robots.passed ? 'Found' : 'Missing',
+            labelB: cf!.robots.passed ? 'Found' : 'Missing',
+            max: 1,
+            highlightHigher: true,
+          ),
+        if (yf != null && cf != null)
+          _CompareRow(
+            context,
+            'Sitemap.xml',
+            yf!.sitemap.passed ? 1 : 0,
+            cf!.sitemap.passed ? 1 : 0,
+            labelA: yf!.sitemap.passed ? 'Found' : 'Missing',
+            labelB: cf!.sitemap.passed ? 'Found' : 'Missing',
+            max: 1,
+            highlightHigher: true,
+          ),
       ],
     ),
   );
@@ -323,15 +382,17 @@ class _CompareRow extends StatelessWidget {
     this.labelB,
     this.detailA,
     this.detailB,
+    this.highlightHigher = false,
   });
   final String label;
   final int a, b, max;
   final String suffix;
   final String? labelA, labelB, detailA, detailB;
+  final bool highlightHigher;
   @override
   Widget build(BuildContext context) {
     final green = Theme.of(context).colorScheme.primary;
-    final aWins = a > b, bWins = b > a;
+    final aWins = highlightHigher && a > b, bWins = highlightHigher && b > a;
     final av = labelA ?? '$a$suffix', bv = labelB ?? '$b$suffix';
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 9),

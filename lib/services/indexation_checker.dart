@@ -65,8 +65,9 @@ class IndexationInfo {
     )) {
       final lang = e.attributes['hreflang']?.trim(),
           href = e.attributes['href']?.trim();
-      if (lang != null && href != null && lang.isNotEmpty && href.isNotEmpty)
+      if (lang != null && href != null && lang.isNotEmpty && href.isNotEmpty) {
         alternates.add(HreflangEntry(lang, base.resolve(href).toString()));
+      }
     }
     return IndexationInfo(
       robotsMeta: meta('robots'),

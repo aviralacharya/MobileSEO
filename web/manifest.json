@@ -1,11 +1,11 @@
 {
-    "name": "mobile_seo",
-    "short_name": "mobile_seo",
+    "name": "MobileSEO",
+    "short_name": "MobileSEO",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#F8FAFC",
+    "theme_color": "#3D5AFE",
+    "description": "Audit web pages, organize SEO projects, verify improvements, and share client-ready reports.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

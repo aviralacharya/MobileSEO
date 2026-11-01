@@ -1,16 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:mobile_seo/main.dart';
+import 'support/app_harness.dart';
 
 /// The default test surface is 800x600, which is shorter than most phones and
 /// leaves no room for the tab body under the collapsing header. Pump at a
 /// realistic portrait phone size so the layout under test is the real one.
 Future<void> pumpApp(WidgetTester tester) async {
-  tester.view.physicalSize = const Size(412, 892);
-  tester.view.devicePixelRatio = 1;
-  addTearDown(tester.view.reset);
-  await tester.pumpWidget(const SeoAuditApp());
+  await pumpTestApp(tester);
 }
 
 void main() {
@@ -90,33 +87,30 @@ void main() {
     await tester.enterText(find.byType(TextField), 'example.com');
     await tester.pump();
 
-    await tester.tap(find.text('Previews'));
-    await tester.pumpAndSettle();
-    expect(find.text('SERP & Social Previews'), findsOneWidget);
+    await selectDestination(tester, 'Tools');
+    expect(find.text('Search & social previews'), findsOneWidget);
 
     await tester.tap(find.text('Dashboard'));
     await tester.pumpAndSettle();
     expect(find.widgetWithText(TextField, 'example.com'), findsOneWidget);
   });
 
-  testWidgets('opens the audit history sheet', (tester) async {
+  testWidgets('opens audit history in Projects', (tester) async {
     await pumpApp(tester);
 
     await tester.tap(find.byTooltip('Audit history'));
     await tester.pumpAndSettle();
 
     expect(find.text('Audit history'), findsOneWidget);
-    expect(find.text('0 saved'), findsOneWidget);
+    expect(
+      find.text('0 saved · Select two audits of the same page to compare.'),
+      findsOneWidget,
+    );
+    expect(find.text('A record of your progress'), findsOneWidget);
   });
 
   testWidgets('keeps the tab body reachable on a small screen', (tester) async {
-    tester.view.physicalSize = const Size(320, 568);
-    tester.view.devicePixelRatio = 1;
-    tester.platformDispatcher.textScaleFactorTestValue = 1.6;
-    addTearDown(tester.view.reset);
-    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-
-    await tester.pumpWidget(const SeoAuditApp());
+    await pumpTestApp(tester, size: const Size(320, 568), textScale: 1.6);
 
     expect(find.byType(TabBar), findsOneWidget);
     expect(find.text('Ready when you are'), findsOneWidget);

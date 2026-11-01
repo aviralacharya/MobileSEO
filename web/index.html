@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <!--
     If you are serving your web app in a path other than the root, change the
@@ -17,30 +17,52 @@
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="description" content="Audit web pages, organize SEO projects, verify improvements, and share client-ready reports with MobileSEO.">
+  <meta name="theme-color" content="#3D5AFE">
+  <meta name="color-scheme" content="light dark">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="mobile_seo">
+  <meta name="apple-mobile-web-app-title" content="MobileSEO">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>mobile_seo</title>
+  <title>MobileSEO</title>
   <link rel="manifest" href="manifest.json">
+  <link rel="preload" as="image" href="splash/logo.png">
+  <style>
+    :root { color-scheme: light dark; --launch-background: #F8FAFC; }
+    @media (prefers-color-scheme: dark) {
+      :root { --launch-background: #0F172A; }
+    }
+    html, body { margin: 0; background: var(--launch-background); }
+    #app-launch {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      display: grid;
+      place-items: center;
+      background: var(--launch-background);
+    }
+    #app-launch img { display: block; width: 96px; height: 96px; }
+  </style>
 </head>
 <body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
-
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
+  <div id="app-launch" role="status" aria-label="Opening MobileSEO">
+    <img src="splash/logo.png" width="96" height="96" alt="" fetchpriority="high">
+  </div>
+  <script>
+    // Keep the logo visible during engine/settings initialization. Flutter emits
+    // this event after drawing real content, avoiding a blank handoff frame.
+    window.addEventListener('flutter-first-frame', function () {
+      document.getElementById('app-launch')?.remove();
+    }, { once: true });
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

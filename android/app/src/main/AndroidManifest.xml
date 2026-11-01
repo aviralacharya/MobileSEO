@@ -1,4 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Release APKs need this permission too; debug/profile manifests already add it. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:label="MobileSEO"
         android:name="${applicationName}"

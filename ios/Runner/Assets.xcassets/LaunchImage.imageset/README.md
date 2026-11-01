@@ -1,5 +1,5 @@
 # Launch Screen Assets
 
-You can customize the launch screen with your own desired assets by replacing the image files in this directory.
+These 1x, 2x, and 3x images display a centered 96pt MobileSEO logo. Regenerate them from the repository root with `python tool/generate_branding.py` (requires Pillow).
 
-You can also do it by opening your Flutter project's Xcode project with `open ios/Runner.xcworkspace`, selecting `Runner/Assets.xcassets` in the Project Navigator and dropping in the desired images.
+`Base.lproj/LaunchScreen.storyboard` constrains the logo size. The `LaunchBackground` color asset supplies matching light and dark backgrounds.

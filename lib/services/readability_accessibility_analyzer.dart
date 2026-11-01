@@ -176,8 +176,9 @@ class ReadabilityAccessibilityReport {
     if (cleaned.endsWith('e') && !cleaned.endsWith('le') && count > 1) {
       count--;
     }
-    if (cleaned.endsWith('es') && count > 1 && !cleaned.endsWith('ses'))
+    if (cleaned.endsWith('es') && count > 1 && !cleaned.endsWith('ses')) {
       count--;
+    }
     return count < 1 ? 1 : count;
   }
 }

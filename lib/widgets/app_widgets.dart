@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
+import '../controllers/audit_controller.dart';
+import '../services/app_settings.dart';
 import '../services/seo_audit_service.dart';
-import '../theme/app_theme.dart';
 import 'app_sheet.dart';
 import 'fix_code_generator.dart';
 
@@ -24,12 +24,9 @@ class SectionCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Container(
-      padding: padding,
+    return DecoratedBox(
       decoration: BoxDecoration(
-        color: scheme.surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.7)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: isDark ? 0.18 : 0.03),
@@ -38,9 +35,43 @@ class SectionCard extends StatelessWidget {
           ),
         ],
       ),
-      child: child,
+      child: Material(
+        color: scheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.7)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Padding(padding: padding, child: child),
+      ),
     );
   }
+}
+
+/// Avoids scheduling size animations when accessibility requests less motion.
+class MotionAwareSize extends StatelessWidget {
+  const MotionAwareSize({
+    super.key,
+    required this.child,
+    this.duration = const Duration(milliseconds: 240),
+    this.curve = Curves.easeOutCubic,
+    this.alignment = Alignment.topCenter,
+  });
+
+  final Widget child;
+  final Duration duration;
+  final Curve curve;
+  final AlignmentGeometry alignment;
+
+  @override
+  Widget build(BuildContext context) => MediaQuery.disableAnimationsOf(context)
+      ? child
+      : AnimatedSize(
+          duration: duration,
+          curve: curve,
+          alignment: alignment,
+          child: child,
+        );
 }
 
 /// Small tinted square used behind an icon in card headers.
@@ -64,20 +95,33 @@ class IconBubble extends StatelessWidget {
   }
 }
 
-/// Brand block used as the title of every screen's app bar.
+/// Small, local artwork shared by the app's top bars.
+class BrandLogo extends StatelessWidget {
+  const BrandLogo({super.key});
+
+  static const image = AssetImage('assets/branding/mobileseo_logo.png');
+
+  @override
+  Widget build(BuildContext context) => Image(
+    image: image,
+    width: 32,
+    height: 32,
+    fit: BoxFit.contain,
+    semanticLabel: 'MobileSEO logo',
+    errorBuilder: (_, _, _) => Icon(
+      Icons.travel_explore_rounded,
+      size: 32,
+      color: Theme.of(context).colorScheme.primary,
+    ),
+  );
+}
+
+/// Compact branding that stays in the top bar, including while scrolling.
 class BrandTitle extends StatelessWidget {
-  const BrandTitle({
-    super.key,
-    required this.title,
-    this.subtitle = 'MobileSEO',
-    this.icon = Icons.travel_explore_rounded,
-    this.faviconUrl,
-  });
+  const BrandTitle({super.key, required this.title, this.trailing});
 
   final String title;
-  final String subtitle;
-  final IconData icon;
-  final String? faviconUrl;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -85,57 +129,21 @@ class BrandTitle extends StatelessWidget {
 
     return Row(
       children: [
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.primary.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: faviconUrl == null
-              ? Image.asset(
-                  'assets/branding/mobileseo_icon.png',
-                  width: 26,
-                  height: 26,
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, _, _) =>
-                      Icon(icon, color: theme.colorScheme.primary),
-                )
-              : Image.network(
-                  faviconUrl!,
-                  width: 24,
-                  height: 24,
-                  errorBuilder: (_, _, _) =>
-                      Icon(icon, color: theme.colorScheme.primary),
-                ),
-        ),
-        const SizedBox(width: 12),
-        // Flexible so long titles and large text scales ellipsize instead of
-        // overflowing the app bar on narrow screens.
-        Flexible(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              Text(
-                subtitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                  letterSpacing: 0.6,
-                ),
-              ),
-            ],
+        const BrandLogo(),
+        const SizedBox(width: 10),
+        // The logo keeps its size while long titles and larger text ellipsize.
+        Expanded(
+          child: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
+        if (trailing != null) ...[const SizedBox(width: 8), trailing!],
       ],
     );
   }
@@ -163,11 +171,13 @@ class StatusChip extends StatelessWidget {
         children: [
           Icon(palette.icon, size: 14, color: palette.color),
           const SizedBox(width: 6),
-          Text(
-            palette.label,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: palette.color,
-              fontWeight: FontWeight.w600,
+          Flexible(
+            child: Text(
+              palette.label,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: palette.color,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -329,180 +339,111 @@ class ThemeModeToggle extends StatelessWidget {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return IconButton(
       tooltip: dark ? 'Switch to light theme' : 'Switch to dark theme',
-      onPressed: AppTheme.toggle,
+      onPressed: () async {
+        try {
+          await SettingsScope.of(context)
+              .update(themeMode: dark ? ThemeMode.light : ThemeMode.dark);
+        } catch (_) {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Could not save the appearance preference.'),
+              ),
+            );
+          }
+        }
+      },
       icon: Icon(dark ? Icons.light_mode_rounded : Icons.dark_mode_rounded),
     );
   }
 }
 
-class AuditLoadingExperience extends StatefulWidget {
-  const AuditLoadingExperience({super.key});
-  @override
-  State<AuditLoadingExperience> createState() => _AuditLoadingExperienceState();
-}
-
-class _AuditLoadingExperienceState extends State<AuditLoadingExperience>
-    with SingleTickerProviderStateMixin {
-  static const _steps = [
-    'Connecting to server & checking SSL...',
-    'Parsing HTML DOM & Meta tags...',
-    'Scanning internal & external links...',
-    'Analyzing keyword density & calculating score...',
-  ];
-  late final AnimationController _shimmer;
-  Timer? _ticker;
-  int _step = 0;
-  @override
-  void initState() {
-    super.initState();
-    _shimmer = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1400),
-    )..repeat();
-    _ticker = Timer.periodic(const Duration(milliseconds: 2400), (_) {
-      if (mounted) setState(() => _step = (_step + 1) % _steps.length);
-    });
-  }
-
-  @override
-  void dispose() {
-    _ticker?.cancel();
-    _shimmer.dispose();
-    super.dispose();
-  }
+class AuditLoadingExperience extends StatelessWidget {
+  const AuditLoadingExperience({
+    super.key,
+    this.phase = AuditPhase.fetching,
+    this.onCancel,
+  });
+  final AuditPhase phase;
+  final VoidCallback? onCancel;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SectionCard(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.4,
-                  color: theme.colorScheme.primary,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 260),
-                  switchInCurve: Curves.easeOutCubic,
-                  switchOutCurve: Curves.easeInCubic,
-                  layoutBuilder: (currentChild, previousChildren) => Stack(
-                    alignment: Alignment.centerLeft,
-                    children: [...previousChildren, ?currentChild],
-                  ),
-                  transitionBuilder: (child, animation) => FadeTransition(
-                    opacity: animation,
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0, .2),
-                        end: Offset.zero,
-                      ).animate(animation),
-                      child: child,
+    final active = switch (phase) {
+      AuditPhase.fetching => 0,
+      AuditPhase.analyzing => 1,
+      _ => 2,
+    };
+    const stages = [
+      'Fetching the page',
+      'Analyzing HTML & on-page checks',
+      'Checking crawl & AI guidance files',
+    ];
+    return Semantics(
+      liveRegion: true,
+      child: SectionCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              phase == AuditPhase.siteFiles
+                  ? 'On-page results are ready'
+                  : 'Audit in progress',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            for (var index = 0; index < stages.length; index++)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 7),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: index < active
+                          ? Icon(
+                              Icons.check_circle_rounded,
+                              size: 22,
+                              color: Theme.of(context).colorScheme.primary,
+                            )
+                          : index == active &&
+                                !MediaQuery.disableAnimationsOf(context)
+                          ? const CircularProgressIndicator(strokeWidth: 2)
+                          : Icon(
+                              index == active
+                                  ? Icons.hourglass_top_rounded
+                                  : Icons.circle_outlined,
+                              size: 20,
+                            ),
                     ),
-                  ),
-                  child: Align(
-                    key: ValueKey(_step),
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      _steps[_step],
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        for (var i = 0; i < 3; i++) ...[
-          if (i > 0) const SizedBox(height: 12),
-          RepaintBoundary(
-            child: SectionCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _ShimmerBlock(animation: _shimmer, width: 150, height: 18),
-                  const SizedBox(height: 14),
-                  _ShimmerBlock(
-                    animation: _shimmer,
-                    width: double.infinity,
-                    height: 12,
-                  ),
-                  const SizedBox(height: 8),
-                  _ShimmerBlock(
-                    animation: _shimmer,
-                    width: double.infinity,
-                    height: 12,
-                  ),
-                  const SizedBox(height: 8),
-                  _ShimmerBlock(animation: _shimmer, width: 190, height: 12),
-                  if (i == 0) ...[
-                    const SizedBox(height: 18),
-                    Center(
-                      child: _ShimmerBlock(
-                        animation: _shimmer,
-                        width: 124,
-                        height: 124,
-                        radius: 100,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        stages[index],
+                        style: TextStyle(
+                          fontWeight: index == active
+                              ? FontWeight.w600
+                              : FontWeight.normal,
+                        ),
                       ),
                     ),
                   ],
-                ],
+                ),
               ),
-            ),
-          ),
-        ],
-      ],
+            if (onCancel != null)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: onCancel,
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  label: const Text('Cancel audit'),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
-}
-
-class _ShimmerBlock extends StatelessWidget {
-  const _ShimmerBlock({
-    required this.animation,
-    required this.width,
-    required this.height,
-    this.radius = 8,
-  });
-  final Animation<double> animation;
-  final double width, height, radius;
-  @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: animation,
-    builder: (context, _) {
-      final scheme = Theme.of(context).colorScheme;
-      final x = animation.value * 2 - 1;
-      return Container(
-        width: width,
-        height: height,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(radius),
-          gradient: LinearGradient(
-            begin: Alignment(x - 0.8, 0),
-            end: Alignment(x + 0.8, 0),
-            colors: [
-              scheme.surfaceContainerHighest.withValues(alpha: .55),
-              scheme.surfaceContainerHighest,
-              scheme.surfaceContainerHighest.withValues(alpha: .55),
-            ],
-          ),
-        ),
-      );
-    },
-  );
 }
 
 class AuditCardEntry extends StatefulWidget {
@@ -521,9 +462,11 @@ class AuditCardEntry extends StatefulWidget {
     this.existingImage = '',
     this.schemaTypes = const [],
     this.animateIn = false,
+    this.showDetails = true,
   });
   final String? fixType;
   final bool animateIn;
+  final bool showDetails;
   final String pageUrl, existingTitle, existingDescription, existingImage;
   final List<String> schemaTypes;
   final int index;
@@ -550,6 +493,18 @@ class _AuditCardEntryState extends State<AuditCardEntry> {
   }
 
   @override
+  void didUpdateWidget(covariant AuditCardEntry oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.animateIn && !oldWidget.animateIn) {
+      _delay?.cancel();
+      _visible = false;
+      _delay = Timer(Duration(milliseconds: widget.index * 45), () {
+        if (mounted) setState(() => _visible = true);
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _delay?.cancel();
     super.dispose();
@@ -558,7 +513,7 @@ class _AuditCardEntryState extends State<AuditCardEntry> {
   Future<void> _details() async {
     // Fire-and-forget: waiting for the haptic channel would delay (or, on
     // platforms without haptics, block) the sheet from opening.
-    HapticFeedback.lightImpact();
+    SettingsScope.of(context).feedback();
     if (!mounted) return;
 
     var fixOpen = false;
@@ -615,7 +570,7 @@ class _AuditCardEntryState extends State<AuditCardEntry> {
                 const SizedBox(height: 22),
                 FilledButton.icon(
                   onPressed: () {
-                    HapticFeedback.lightImpact();
+                    SettingsScope.of(context).feedback();
                     setSheetState(() => fixOpen = !fixOpen);
                   },
                   icon: Icon(
@@ -623,10 +578,8 @@ class _AuditCardEntryState extends State<AuditCardEntry> {
                   ),
                   label: Text(fixOpen ? 'Hide HTML Fix' : 'Generate HTML Fix'),
                 ),
-                AnimatedSize(
+                MotionAwareSize(
                   duration: const Duration(milliseconds: 280),
-                  curve: Curves.easeOutCubic,
-                  alignment: Alignment.topCenter,
                   child: fixOpen
                       ? Padding(
                           padding: const EdgeInsets.only(top: 18),
@@ -669,11 +622,29 @@ class _AuditCardEntryState extends State<AuditCardEntry> {
           ignoring: !visible,
           child: Material(
             color: Colors.transparent,
-            child: InkWell(
-              onTap: _details,
-              borderRadius: BorderRadius.circular(20),
-              child: widget.child,
-            ),
+            child: !widget.showDetails
+                ? widget.child
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      InkWell(
+                        onTap: _details,
+                        borderRadius: BorderRadius.circular(20),
+                        child: widget.child,
+                      ),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: _details,
+                          icon: const Icon(
+                            Icons.arrow_forward_rounded,
+                            size: 16,
+                          ),
+                          label: const Text('View details'),
+                        ),
+                      ),
+                    ],
+                  ),
           ),
         ),
       ),

@@ -44,8 +44,9 @@ LinkAudit checkLinks(dom.Document document, Uri pageUrl) {
     if ((anchor.attributes['rel'] ?? '')
         .toLowerCase()
         .split(RegExp(r'\s+'))
-        .contains('nofollow'))
+        .contains('nofollow')) {
       nofollow++;
+    }
     final parsed = Uri.tryParse(href);
     if (parsed == null) {
       empty++;

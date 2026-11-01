@@ -1,103 +1,225 @@
 import 'package:flutter/material.dart';
 
+import '../services/audit_review.dart';
 import '../services/seo_audit_service.dart';
+import 'app_sheet.dart';
 import 'app_widgets.dart';
+import 'fix_code_generator.dart';
 
-/// Interactive checklist of failing audit items.
-///
-/// Ticking an item does not change the audited page — it only tells the
-/// caller "pretend this is fixed", so the score gauge can preview the gain.
-class FixChecklist extends StatelessWidget {
-  const FixChecklist({
-    super.key,
-    required this.fixes,
-    required this.checked,
-    required this.pointsPerFix,
-    required this.onToggle,
-    this.onReset,
-  });
-
-  /// Every failing check, in report order.
-  final List<AuditCheck> fixes;
-
-  /// Labels of the fixes the user has ticked off.
-  final Set<String> checked;
-
-  /// Points a single fix is worth on the current score.
-  final int pointsPerFix;
-
-  final ValueChanged<String> onToggle;
-  final VoidCallback? onReset;
-
+class FindingBadge extends StatelessWidget {
+  const FindingBadge({super.key, required this.finding});
+  final AuditFinding finding;
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final goodColor = StatusPalette.of(context, AuditStatus.good).color;
+    final palette = finding.severity == FindingSeverity.critical
+        ? StatusPalette.critical(context)
+        : StatusPalette.of(
+            context,
+            finding.passed ? AuditStatus.good : AuditStatus.warning,
+          );
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: palette.background,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(palette.icon, size: 14, color: palette.color),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              finding.severityLabel,
+              style: Theme.of(context).textTheme.labelSmall
+                  ?.copyWith(color: palette.color, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
-    if (fixes.isEmpty) {
-      return MessageCard(
-        icon: Icons.task_alt_rounded,
-        title: 'Nothing to fix',
-        message:
-            'Every check passed on this page. Keep an eye on it as the '
-            'content changes.',
-        tone: goodColor,
-      );
-    }
+Future<void> showFindingDetails(
+  BuildContext context,
+  AuditFinding finding,
+  SeoAuditResult result,
+) => AppSheet.show<void>(
+  context: context,
+  builder: (context) => DraggableScrollableSheet(
+    expand: false,
+    initialChildSize: .72,
+    minChildSize: .4,
+    maxChildSize: .94,
+    builder: (context, controller) => ListView(
+      controller: controller,
+      padding: EdgeInsets.fromLTRB(
+        24,
+        0,
+        24,
+        28 + MediaQuery.viewInsetsOf(context).bottom,
+      ),
+      children: [
+        Text(finding.title, style: Theme.of(context).textTheme.headlineSmall),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 10,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            FindingBadge(finding: finding),
+            Text('${finding.category} · ${finding.effort} estimated'),
+          ],
+        ),
+        const SizedBox(height: 20),
+        Text('Evidence', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 6),
+        SelectableText(finding.evidence),
+        const SizedBox(height: 10),
+        SelectableText(
+          result.url,
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 20),
+        Text(
+          'How to improve it',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 6),
+        Text(finding.recommendation),
+        const SizedBox(height: 12),
+        Text(
+          finding.scored
+              ? 'This is one of the six core score checks.'
+              : 'This extended diagnostic does not change the core score.',
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'Make changes on your website, publish, and re-audit this page to verify the result.',
+        ),
+        if (!finding.passed && finding.fixType != null) ...[
+          const SizedBox(height: 24),
+          FixCodeGenerator(
+            type: finding.fixType!,
+            url: result.url,
+            title: result.title ?? '',
+            description: result.description ?? '',
+            image: result.openGraph.image ?? '',
+            schemaTypes: result.schemaTypes,
+          ),
+        ],
+      ],
+    ),
+  ),
+);
 
+class FindingCounts extends StatelessWidget {
+  const FindingCounts({super.key, required this.findings});
+  final List<AuditFinding> findings;
+  @override
+  Widget build(BuildContext context) => Wrap(
+    spacing: 8,
+    runSpacing: 8,
+    children: [
+      for (final severity in FindingSeverity.values)
+        Chip(
+          avatar: Icon(switch (severity) {
+            FindingSeverity.critical => Icons.error_outline_rounded,
+            FindingSeverity.improvement => Icons.tips_and_updates_outlined,
+            FindingSeverity.passed => Icons.check_circle_outline_rounded,
+          }, size: 18),
+          label: Text(
+            '${findings.where((finding) => finding.severity == severity).length} ${switch (severity) {
+              FindingSeverity.critical => 'critical',
+              FindingSeverity.improvement => 'improvements',
+              FindingSeverity.passed => 'passed',
+            }}',
+          ),
+        ),
+    ],
+  );
+}
+
+class TopRecommendations extends StatelessWidget {
+  const TopRecommendations({super.key, required this.result});
+  final SeoAuditResult result;
+  @override
+  Widget build(BuildContext context) {
+    final findings = reviewAudit(result)
+        .where((finding) => !finding.passed)
+        .take(3)
+        .toList();
     return SectionCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const IconBubble(icon: Icons.checklist_rounded),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Fix checklist',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              _CountBadge(
-                label: '${checked.length}/${fixes.length}',
-                color: checked.isEmpty ? scheme.onSurfaceVariant : goodColor,
-              ),
-            ],
+          Text(
+            'Your next best fixes',
+            style: Theme.of(context).textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 6),
           Text(
-            checked.isEmpty
-                ? 'Tick an issue to preview how your score improves.'
-                : '${checked.length} of ${fixes.length} issues marked as fixed '
-                      '— preview only, the live site is unchanged.',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-              height: 1.4,
-            ),
+            findings.isEmpty
+                ? 'All reviewed checks are passing. Keep monitoring as your page changes.'
+                : 'Start with these ${findings.length} recommendations.',
+            style: Theme.of(context).textTheme.bodySmall,
           ),
-          const SizedBox(height: 12),
-          for (var i = 0; i < fixes.length; i++) ...[
-            if (i > 0) const SizedBox(height: 10),
-            _FixTile(
-              check: fixes[i],
-              isChecked: checked.contains(fixes[i].label),
-              points: pointsPerFix,
-              onChanged: () => onToggle(fixes[i].label),
-            ),
-          ],
-          if (checked.isNotEmpty && onReset != null) ...[
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: onReset,
-                icon: const Icon(Icons.restart_alt_rounded, size: 18),
-                label: const Text('Reset preview'),
-              ),
+          for (var index = 0; index < findings.length; index++) ...[
+            const Divider(height: 24),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  radius: 15,
+                  child: Text(
+                    '${index + 1}',
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        findings[index].title,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        findings[index].evidence,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          FindingBadge(finding: findings[index]),
+                          Text(
+                            findings[index].effort,
+                            style: Theme.of(context).textTheme.labelSmall,
+                          ),
+                        ],
+                      ),
+                      TextButton.icon(
+                        onPressed: () => showFindingDetails(
+                          context,
+                          findings[index],
+                          result,
+                        ),
+                        icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+                        label: const Text('View fix'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ],
         ],
@@ -106,101 +228,166 @@ class FixChecklist extends StatelessWidget {
   }
 }
 
-class _FixTile extends StatelessWidget {
-  const _FixTile({
-    required this.check,
-    required this.isChecked,
-    required this.points,
-    required this.onChanged,
+/// Tracking a task never modifies a measured score or verifies a finding.
+class FixChecklist extends StatefulWidget {
+  const FixChecklist({
+    super.key,
+    required this.result,
+    required this.inProgress,
+    required this.verified,
+    required this.onToggle,
+    this.onReset,
+    this.onReaudit,
+    this.readOnly = false,
   });
-
-  final AuditCheck check;
-  final bool isChecked;
-  final int points;
-  final VoidCallback onChanged;
-
+  final SeoAuditResult result;
+  final Set<String> inProgress, verified;
+  final ValueChanged<String> onToggle;
+  final VoidCallback? onReset, onReaudit;
+  final bool readOnly;
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final goodColor = StatusPalette.of(context, AuditStatus.good).color;
-    final accent = isChecked ? goodColor : scheme.outlineVariant;
-
-    // Material (not a decorated Container) so the tile's background and ink
-    // splashes stay visible, as Flutter asserts for decorated ListTile parents.
-    return Material(
-      color: isChecked
-          ? goodColor.withValues(alpha: 0.08)
-          : scheme.surfaceContainerHighest.withValues(alpha: 0.35),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: BorderSide(
-          color: accent.withValues(alpha: isChecked ? 0.45 : 0.7),
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: CheckboxListTile(
-        value: isChecked,
-        onChanged: (_) => onChanged(),
-        controlAffinity: ListTileControlAffinity.leading,
-        contentPadding: const EdgeInsets.only(left: 4, right: 12, top: 2),
-        visualDensity: VisualDensity.compact,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        checkboxShape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(6),
-        ),
-        activeColor: goodColor,
-        title: Text(
-          check.label,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-            decoration: isChecked ? TextDecoration.lineThrough : null,
-            decorationColor: scheme.onSurfaceVariant,
-            color: isChecked ? scheme.onSurfaceVariant : scheme.onSurface,
-          ),
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 2),
-          child: Text(
-            check.note,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-              height: 1.35,
-            ),
-          ),
-        ),
-        secondary: isChecked
-            ? Icon(Icons.check_circle_rounded, color: goodColor, size: 20)
-            : points > 0
-            ? _CountBadge(label: '+$points pts', color: scheme.primary)
-            : null,
-      ),
-    );
-  }
+  State<FixChecklist> createState() => _FixChecklistState();
 }
 
-class _CountBadge extends StatelessWidget {
-  const _CountBadge({required this.label, required this.color});
+class _FixChecklistState extends State<FixChecklist> {
+  String _filter = 'Open';
 
-  final String label;
-  final Color color;
+  String _status(AuditFinding finding) => finding.passed
+      ? widget.verified.contains(finding.id)
+            ? 'Verified'
+            : 'Passed'
+      : widget.inProgress.contains(finding.id)
+      ? 'In progress'
+      : 'To do';
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: theme.textTheme.labelSmall?.copyWith(
-          color: color,
-          fontWeight: FontWeight.w700,
-        ),
+    final findings = reviewAudit(widget.result);
+    final filtered = findings
+        .where(
+          (finding) =>
+              _filter == 'Open' ? !finding.passed : _status(finding) == _filter,
+        )
+        .toList();
+    return SectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Fix checklist',
+            style: Theme.of(context).textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            widget.readOnly
+                ? 'Historical snapshot. Re-audit to track fixes against current results.'
+                : 'To do, In progress, then Verified by a later audit.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              for (final filter in [
+                'Open',
+                'To do',
+                'In progress',
+                'Verified',
+                'Passed',
+              ])
+                ChoiceChip(
+                  label: Text(
+                    '$filter (${findings.where((finding) => filter == 'Open' ? !finding.passed : _status(finding) == filter).length})',
+                  ),
+                  selected: _filter == filter,
+                  onSelected: (_) => setState(() => _filter = filter),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (filtered.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              child: Text(
+                _filter == 'Verified'
+                    ? 'A re-audit verifies fixes when previously failing checks pass.'
+                    : 'No checks in this view.',
+              ),
+            ),
+          for (final finding in filtered) ...[
+            const Divider(height: 20),
+            Text(finding.title, style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                FindingBadge(finding: finding),
+                Text(
+                  _status(finding),
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              finding.evidence,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                TextButton.icon(
+                  onPressed: () =>
+                      showFindingDetails(context, finding, widget.result),
+                  icon: const Icon(Icons.info_outline_rounded, size: 18),
+                  label: const Text('Evidence & fix'),
+                ),
+                if (!finding.passed && !widget.readOnly)
+                  TextButton.icon(
+                    onPressed: () => widget.onToggle(finding.id),
+                    icon: Icon(
+                      widget.inProgress.contains(finding.id)
+                          ? Icons.undo_rounded
+                          : Icons.playlist_add_check_rounded,
+                      size: 18,
+                    ),
+                    label: Text(
+                      widget.inProgress.contains(finding.id)
+                          ? 'Move to To do'
+                          : 'Start fix',
+                    ),
+                  ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              if (widget.onReaudit != null)
+                FilledButton.tonalIcon(
+                  onPressed: widget.onReaudit,
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('Re-audit to verify'),
+                ),
+              if (!widget.readOnly &&
+                  widget.inProgress.isNotEmpty &&
+                  widget.onReset != null)
+                TextButton(
+                  onPressed: widget.onReset,
+                  child: const Text('Reset in-progress'),
+                ),
+            ],
+          ),
+        ],
       ),
     );
   }

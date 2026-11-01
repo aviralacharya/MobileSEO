@@ -59,8 +59,7 @@ enum ScoreBand {
 
 /// Animated 270° arc gauge that shows a 0–100 SEO health score.
 ///
-/// The value is tweened, so passing a new [score] — for example after the
-/// user ticks a fix in the checklist — animates both the arc and the number.
+/// A new measured score animates both the arc and the number.
 class ScoreGauge extends StatelessWidget {
   const ScoreGauge({
     super.key,
@@ -209,23 +208,20 @@ class ScoreSummaryCard extends StatelessWidget {
   const ScoreSummaryCard({
     super.key,
     required this.result,
-    required this.score,
-    required this.fixedCount,
+    this.projectedScore,
+    this.selectedCoreChecks = 0,
   });
 
   final SeoAuditResult result;
 
-  /// Score to display, i.e. the real score plus any previewed fixes.
-  final int score;
-
-  /// How many failing checks the user has ticked in the checklist.
-  final int fixedCount;
+  final int? projectedScore;
+  final int selectedCoreChecks;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final band = ScoreBand.of(score);
+    final band = ScoreBand.of(result.score);
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -239,117 +235,58 @@ class ScoreSummaryCard extends StatelessWidget {
         border: Border.all(color: scheme.outlineVariant),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
-              Icon(band.icon, size: 18, color: band.color(context)),
-              const SizedBox(width: 8),
+              ScoreGauge(score: result.score, size: 104),
+              const SizedBox(width: 16),
               Expanded(
-                child: Text(
-                  'SEO health',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Measured SEO score',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      band.label,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: band.color(context),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${result.passedCount} of ${result.checks.length} core checks passed',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
                 ),
               ),
-              if (fixedCount > 0)
-                _PreviewBadge(
-                  label: '+${score - result.score} pts preview',
-                  color: band.color(context),
-                ),
             ],
           ),
-          const SizedBox(height: 12),
-          ScoreGauge(score: score),
-          const SizedBox(height: 12),
-          Text(
-            band.label,
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: band.color(context),
+          if (projectedScore != null && selectedCoreChecks > 0) ...[
+            const Divider(height: 28),
+            Text(
+              'Projected: $projectedScore/100',
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: scheme.primary,
+              ),
             ),
-          ),
-          const SizedBox(height: 4),
+            const SizedBox(height: 4),
+            Text(
+              'If $selectedCoreChecks selected core checks pass. Re-audit after publishing to measure the change.',
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+          const SizedBox(height: 12),
           Text(
-            '${result.passedCount} of ${result.checks.length} checks passed'
-            '${fixedCount > 0 ? ' · $fixedCount marked as fixed' : ''}',
-            textAlign: TextAlign.center,
+            'Based on the returned HTML. Extended diagnostics are listed separately from the six-check score.',
             style: theme.textTheme.bodySmall?.copyWith(
               color: scheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 14),
-          _UrlLine(url: result.url),
-        ],
-      ),
-    );
-  }
-}
-
-class _PreviewBadge extends StatelessWidget {
-  const _PreviewBadge({required this.label, required this.color});
-
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.trending_up_rounded, size: 13, color: color),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: color,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _UrlLine extends StatelessWidget {
-  const _UrlLine({required this.url});
-
-  final String url;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: scheme.surface.withValues(alpha: 0.75),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.6)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.public_rounded, size: 14, color: scheme.onSurfaceVariant),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              url,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
             ),
           ),
         ],

@@ -1,19 +1,21 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:printing/printing.dart';
 
+import '../controllers/audit_controller.dart';
+import '../services/app_settings.dart';
+import '../services/audit_review.dart';
 import '../services/seo_audit_service.dart';
 import '../services/audit_history_service.dart';
-import '../services/pdf_report_service.dart';
 import '../services/site_files_checker.dart';
+import '../utils/page_identity.dart';
 import '../widgets/app_widgets.dart';
 import '../widgets/audit_history_widgets.dart';
 import '../widgets/audit_cards.dart';
 import '../widgets/fix_checklist.dart';
 import '../widgets/score_gauge.dart';
-import 'legal_pages.dart';
+import '../widgets/report_export_sheet.dart';
+import 'audit_comparison_screen.dart';
 
 /// Tab 1 of the shell: the audit form plus the three result tabs.
 ///
@@ -39,6 +41,23 @@ class AuditDashboardScreen extends StatefulWidget {
     required this.onToggleFix,
     required this.onResetFixes,
     required this.onTabChanged,
+    this.phase = AuditPhase.fetching,
+    this.source = AuditSource.live,
+    this.auditedAt,
+    this.previousAudit,
+    this.siteFilesLoading = false,
+    this.siteFilesError,
+    this.saveWarning,
+    this.isSaving = false,
+    this.onCancel,
+    this.onRetryFiles,
+    this.onRetrySave,
+    this.onLoadSample,
+    this.onSaveProject,
+    this.onReaudit,
+    this.projectName = '',
+    this.isSavedProject = false,
+    this.canTrackFixes = true,
   });
 
   final TextEditingController urlController;
@@ -49,7 +68,7 @@ class AuditDashboardScreen extends StatefulWidget {
   final SeoAuditResult? result;
   final SiteFilesReport? siteFiles;
 
-  /// Labels of the checklist items the user has ticked off.
+  /// IDs of findings the user is working on; never measured as passing.
   final Set<String> checkedFixes;
 
   /// Selected result tab, lifted so it survives navigation.
@@ -63,6 +82,19 @@ class AuditDashboardScreen extends StatefulWidget {
   final ValueChanged<String> onToggleFix;
   final VoidCallback onResetFixes;
   final ValueChanged<int> onTabChanged;
+  final AuditPhase phase;
+  final AuditSource source;
+  final DateTime? auditedAt;
+  final AuditHistoryEntry? previousAudit;
+  final bool siteFilesLoading, isSavedProject, canTrackFixes, isSaving;
+  final String? siteFilesError, saveWarning;
+  final String projectName;
+  final VoidCallback? onCancel,
+      onRetryFiles,
+      onRetrySave,
+      onLoadSample,
+      onSaveProject,
+      onReaudit;
 
   @override
   State<AuditDashboardScreen> createState() => _AuditDashboardScreenState();
@@ -70,12 +102,10 @@ class AuditDashboardScreen extends StatefulWidget {
 
 class _AuditDashboardScreenState extends State<AuditDashboardScreen>
     with SingleTickerProviderStateMixin {
-  static const double _toolbarHeight = 68;
-  static const double _expandedHeight = 236;
-
   late final TabController _tabs;
   late int _reportedIndex;
   late bool _searchExpanded;
+  final _outerScroll = ScrollController();
 
   /// True only for a short window after a fresh audit, so card entrance
   /// animations play once instead of replaying on every tab visit.
@@ -94,6 +124,7 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
   @override
   void didUpdateWidget(AuditDashboardScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.tabIndex != _tabs.index) _tabs.index = widget.tabIndex;
     // Collapse the form once a fresh result arrives, expand it again if the
     // result was cleared by an error.
     if (oldWidget.result == null && widget.result != null) {
@@ -101,8 +132,11 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
     } else if (oldWidget.result != null && widget.result == null) {
       _searchExpanded = true;
     }
-    if (widget.result != null && oldWidget.result?.url != widget.result?.url) {
+    if (widget.result != null && !identical(oldWidget.result, widget.result)) {
       _scheduleCardAnimation();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _outerScroll.hasClients) _outerScroll.jumpTo(0);
+      });
     }
   }
 
@@ -119,115 +153,78 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
     _cardAnimationTimer?.cancel();
     _tabs.removeListener(_handleTabChange);
     _tabs.dispose();
+    _outerScroll.dispose();
     super.dispose();
   }
 
-  Future<void> _sharePdf() async {
+  String get _sourceLabel => switch (widget.source) {
+    AuditSource.live => 'Live audit',
+    AuditSource.saved => 'Saved snapshot',
+    AuditSource.sample => 'Sample audit',
+  };
+
+  Future<void> _shareReport() async {
     final result = widget.result;
     if (result == null) return;
-    try {
-      final bytes = await const PdfReportService().buildReport(result);
-      final host =
-          Uri.tryParse(result.url)?.host
-              .replaceAll(RegExp(r'[^a-zA-Z0-9.-]'), '_') ??
-          'audit';
-      await Printing.sharePdf(
-        bytes: bytes,
-        filename: 'mobile-seo-$host-report.pdf',
-      );
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Could not create or share the PDF report: $error'),
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.all(16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-      );
-    }
+    await showReportExport(
+      context,
+      result: result,
+      source: _sourceLabel,
+      auditedAt: widget.auditedAt,
+      before: widget.previousAudit,
+      siteFiles: widget.siteFiles,
+      inProgress: widget.checkedFixes,
+      projectName: widget.projectName,
+    );
   }
 
   void _handleTabChange() {
     if (_tabs.index == _reportedIndex) return;
     _reportedIndex = _tabs.index;
-    HapticFeedback.lightImpact();
+    SettingsScope.of(context).feedback();
     widget.onTabChanged(_reportedIndex);
   }
 
   @override
   Widget build(BuildContext context) {
     final result = widget.result;
-    final score = result?.scoreWithFixes(widget.checkedFixes.length) ?? 0;
+    final score = result?.score ?? 0;
     final domain = result == null
         ? 'MobileSEO'
         : (Uri.tryParse(result.url)?.host ?? result.url);
     final scheme = Theme.of(context).colorScheme;
-    // Before the first audit there is no gauge to show, so keep the decorative
-    // header short. This guarantees room for the tab body on small phones
-    // (e.g. 320x568) where a tall header would push it out of the viewport.
-    final expandedHeight = result == null ? 132.0 : _expandedHeight;
 
     return SafeArea(
       top: false,
       child: NestedScrollView(
+        controller: _outerScroll,
         headerSliverBuilder: (context, innerBoxIsScrolled) => [
           SliverAppBar(
             pinned: true,
-            expandedHeight: expandedHeight,
-            collapsedHeight: _toolbarHeight,
-            toolbarHeight: _toolbarHeight,
             titleSpacing: 16,
-            title: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (result?.indexation.faviconUrl != null) ...[
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(7),
-                    child: Image.network(
-                      result!.indexation.faviconUrl!,
-                      width: 22,
-                      height: 22,
-                      errorBuilder: (_, _, _) => Icon(
-                        Icons.public,
-                        size: 20,
-                        color: scheme.onSurfaceVariant,
+            title: BrandTitle(
+              title: domain,
+              trailing: result == null
+                  ? null
+                  : Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 9,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: scheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        '$score',
+                        semanticsLabel: 'Measured score $score out of 100',
+                        style: TextStyle(
+                          color: scheme.onPrimaryContainer,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 9),
-                ],
-                Flexible(
-                  child: Text(
-                    domain,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (result != null) ...[
-                  const SizedBox(width: 9),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 9,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: scheme.primaryContainer,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      '$score',
-                      style: TextStyle(
-                        color: scheme.onPrimaryContainer,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
             ),
             actions: [
               IconButton(
@@ -237,51 +234,11 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
               ),
               if (result != null)
                 IconButton(
-                  tooltip: 'Share PDF report',
-                  onPressed: _sharePdf,
-                  icon: const Icon(Icons.picture_as_pdf_outlined),
+                  tooltip: 'Export report',
+                  onPressed: _shareReport,
+                  icon: const Icon(Icons.ios_share_rounded),
                 ),
-              const LegalMenuButton(),
-              const ThemeModeToggle(),
             ],
-            flexibleSpace: LayoutBuilder(
-              builder: (context, constraints) {
-                final collapse =
-                    ((constraints.maxHeight - _toolbarHeight) /
-                            (expandedHeight - _toolbarHeight))
-                        .clamp(0.0, 1.0);
-                // Fade the gauge out before it can slide under the toolbar.
-                final fade = ((collapse - 0.3) / 0.7).clamp(0.0, 1.0);
-
-                return Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        ignoring: fade < .05,
-                        child: Opacity(
-                          opacity: fade,
-                          child: Align(
-                            alignment: Alignment.bottomCenter,
-                            child: Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: result != null
-                                  ? ScoreGauge(score: score, size: 112)
-                                  : Image.asset(
-                                      'assets/branding/mobileseo_icon.png',
-                                      width: 76,
-                                      height: 76,
-                                      fit: BoxFit.contain,
-                                    ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
           ),
           SliverToBoxAdapter(child: _searchHeader(context)),
           SliverPersistentHeader(
@@ -316,12 +273,7 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
     child: Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 780),
-        child: AnimatedSize(
-          duration: const Duration(milliseconds: 240),
-          curve: Curves.easeOutCubic,
-          alignment: Alignment.topCenter,
-          child: _searchArea(context),
-        ),
+        child: MotionAwareSize(child: _searchArea(context)),
       ),
     ),
   );
@@ -421,6 +373,7 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
           TextField(
             controller: widget.urlController,
             keyboardType: TextInputType.url,
+            enabled: !widget.isLoading,
             textInputAction: TextInputAction.go,
             autocorrect: false,
             enableSuggestions: false,
@@ -440,7 +393,9 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
             child: FilledButton(
               onPressed: widget.isLoading ? null : widget.onRun,
               child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 200),
+                duration: MediaQuery.disableAnimationsOf(context)
+                    ? Duration.zero
+                    : const Duration(milliseconds: 200),
                 switchInCurve: Curves.easeOut,
                 switchOutCurve: Curves.easeIn,
                 layoutBuilder: (currentChild, previousChildren) => Stack(
@@ -490,58 +445,154 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
   // ---------------------------------------------------------------------------
 
   Widget _bodyForTab(int index) {
-    final child = switch (index) {
-      1 => _onPageTab(context),
-      2 => _technicalTab(context),
-      _ => _overviewTab(context),
-    };
-    return _TabBody(stateKey: 'tab-$index', child: child);
-  }
-
-  Widget _overviewTab(BuildContext context) {
-    if (widget.isLoading) return const AuditLoadingExperience();
-    if (widget.errorMessage != null) {
-      return ErrorCard(
+    final Widget child;
+    if (widget.isLoading && widget.result == null) {
+      child = AuditLoadingExperience(
+        phase: widget.phase,
+        onCancel: widget.onCancel,
+      );
+    } else if (widget.errorMessage != null) {
+      child = ErrorCard(
         message: widget.errorMessage!,
         onRetry: widget.canRetry ? widget.onRetry : null,
       );
+    } else {
+      child = switch (index) {
+        1 => _onPageTab(context),
+        2 => _technicalTab(context),
+        _ => _overviewTab(context),
+      };
     }
+    return _TabBody(
+      stateKey: 'tab-$index-${widget.result?.hashCode ?? 'empty'}',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (widget.isLoading && widget.result != null) ...[
+            AuditLoadingExperience(
+              phase: widget.phase,
+              onCancel: widget.onCancel,
+            ),
+            const SizedBox(height: 16),
+          ],
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _overviewTab(BuildContext context) {
     final result = widget.result;
     if (result == null) {
-      return const MessageCard(
+      return MessageCard(
         icon: Icons.travel_explore_rounded,
-        title: 'Ready when you are',
-        message: 'Enter a URL above to score the page and get a checklist of everything that is holding it back.',
+        title: widget.phase == AuditPhase.cancelled
+            ? 'Audit cancelled'
+            : 'Ready when you are',
+        message: widget.phase == AuditPhase.cancelled
+            ? 'Your request was stopped. Run the audit again when you are ready.'
+            : 'See how your page is doing, prioritize the next fix and track your progress.',
+        action: widget.onLoadSample == null
+            ? null
+            : TextButton.icon(
+                onPressed: widget.onLoadSample,
+                icon: const Icon(Icons.auto_awesome_outlined),
+                label: const Text('Explore sample audit'),
+              ),
       );
     }
-    final fixedCount = widget.checkedFixes.length;
-    final score = result.scoreWithFixes(fixedCount);
+    final score = result.score;
+    final findings = reviewAudit(result);
+    final comparison = widget.previousAudit == null
+        ? null
+        : AuditComparison(before: widget.previousAudit!.result, after: result);
+    final pageHistory = widget.history
+        .where(
+          (entry) =>
+              samePage(entry.result.url, result.url) &&
+              (widget.auditedAt == null ||
+                  !entry.createdAt.isAfter(widget.auditedAt!)),
+        )
+        .toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (widget.history
-                .where(
-                  (e) =>
-                      Uri.tryParse(e.result.url)?.host.toLowerCase() ==
-                      Uri.tryParse(result.url)?.host.toLowerCase(),
-                )
-                .length >=
-            2) ...[
-          ScoreTrendChart(
-            entries: widget.history
-                .where(
-                  (e) =>
-                      Uri.tryParse(e.result.url)?.host.toLowerCase() ==
-                      Uri.tryParse(result.url)?.host.toLowerCase(),
-                )
-                .toList(),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Chip(
+              avatar: Icon(switch (widget.source) {
+                AuditSource.live => Icons.check_circle_outline_rounded,
+                AuditSource.saved => Icons.history_rounded,
+                AuditSource.sample => Icons.science_outlined,
+              }, size: 18),
+              label: Text(_sourceLabel),
+            ),
+            if (widget.auditedAt != null)
+              Text(
+                formatAuditDate(widget.auditedAt!),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+          ],
+        ),
+        if (widget.source == AuditSource.sample)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              'An offline example to explore. Sample tasks are temporary and stay out of your real projects and history.',
+            ),
           ),
-          const SizedBox(height: 16),
-        ],
+        if (widget.saveWarning != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.saveWarning!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+                if (widget.onRetrySave != null)
+                  TextButton.icon(
+                    onPressed: widget.isSaving ? null : widget.onRetrySave,
+                    icon: const Icon(Icons.save_outlined),
+                    label: Text(widget.isSaving ? 'Saving…' : 'Retry save'),
+                  ),
+              ],
+            ),
+          ),
+        Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          children: [
+            if (widget.onReaudit != null)
+              FilledButton.tonalIcon(
+                onPressed: widget.isLoading ? null : widget.onReaudit,
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('Re-audit page'),
+              ),
+            if (widget.onSaveProject != null)
+              TextButton.icon(
+                onPressed: widget.onSaveProject,
+                icon: Icon(
+                  widget.isSavedProject
+                      ? Icons.bookmark_rounded
+                      : Icons.bookmark_add_outlined,
+                  size: 18,
+                ),
+                label: Text(
+                  widget.isSavedProject ? 'Project saved' : 'Save project',
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
         AuditCardEntry(
           animateIn: _animateCards,
           index: 0,
-          title: 'SEO health score',
+          title: 'Measured SEO score',
           summary: '$score out of 100',
           why: 'The score summarizes the audit checks that affect how clearly search engines can understand the page.',
           steps: const [
@@ -551,14 +602,60 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
           ],
           child: ScoreSummaryCard(
             result: result,
-            score: score,
-            fixedCount: fixedCount,
+            projectedScore: projectedAuditScore(result, widget.checkedFixes),
+            selectedCoreChecks: selectedCoreFixes(result, widget.checkedFixes),
           ),
         ),
+        FindingCounts(findings: findings),
         const SizedBox(height: 16),
         AuditCardEntry(
           animateIn: _animateCards,
           index: 1,
+          showDetails: false,
+          title: 'Your next best fixes',
+          summary: '',
+          why: '',
+          steps: const [],
+          child: TopRecommendations(result: result),
+        ),
+        const SizedBox(height: 16),
+        if (comparison != null) ...[
+          SectionCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Since the previous audit',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                ComparisonCounts(comparison: comparison),
+                TextButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => AuditComparisonScreen(
+                        before: widget.previousAudit!,
+                        after: AuditHistoryEntry(
+                          id: 'current',
+                          createdAt: widget.auditedAt!,
+                          result: result,
+                          siteFiles: widget.siteFiles,
+                        ),
+                      ),
+                    ),
+                  ),
+                  icon: const Icon(Icons.compare_arrows_rounded, size: 18),
+                  label: const Text('View before & after'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+        AuditCardEntry(
+          animateIn: _animateCards,
+          index: 2,
+          showDetails: false,
           title: 'Fix checklist',
           summary: '${result.failedChecks.length} items to review',
           why: 'Resolving on-page issues can improve search visibility and the experience for visitors.',
@@ -568,33 +665,38 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
             'Re-run the audit to confirm it is fixed.',
           ],
           child: FixChecklist(
-            fixes: result.failedChecks,
-            checked: widget.checkedFixes,
-            pointsPerFix: result.pointsPerFix,
+            result: result,
+            inProgress: widget.checkedFixes,
+            verified:
+                comparison?.resolved.map((finding) => finding.id).toSet() ?? {},
             onToggle: widget.onToggleFix,
             onReset: widget.onResetFixes,
+            onReaudit: widget.isLoading ? null : widget.onReaudit,
+            readOnly: !widget.canTrackFixes,
           ),
         ),
         const SizedBox(height: 16),
-        AuditCardEntry(
-          animateIn: _animateCards,
-          index: 2,
-          title: 'Audit checks',
-          summary: '${result.passedCount} of ${result.checks.length} passed',
-          why: 'Each check points to page elements or signals that search engines use to interpret your content.',
-          steps: const [
-            'Review each failed check.',
-            'Apply its recommended fix.',
-            'Audit again to track the result.',
-          ],
-          child: _ScoreBreakdown(result: result, score: score),
+        SectionCard(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: ExpansionTile(
+            key: const PageStorageKey('score-trend'),
+            tilePadding: EdgeInsets.zero,
+            title: const Text('Score trend & core checks'),
+            children: [
+              if (pageHistory.length >= 2) ...[
+                ScoreTrendChart(entries: pageHistory),
+                const SizedBox(height: 12),
+              ],
+              _ScoreBreakdown(result: result, score: score),
+              const SizedBox(height: 16),
+            ],
+          ),
         ),
       ],
     );
   }
 
   Widget _onPageTab(BuildContext context) {
-    if (widget.isLoading) return const AuditLoadingExperience();
     final r = widget.result;
     if (r == null) {
       return const MessageCard(
@@ -698,7 +800,6 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
   }
 
   Widget _technicalTab(BuildContext context) {
-    if (widget.isLoading) return const AuditLoadingExperience();
     final result = widget.result;
     if (result == null) {
       return const MessageCard(
@@ -740,7 +841,12 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
         const SizedBox(height: 16),
         SecurityResponseCard(report: result.security),
         const SizedBox(height: 16),
-        CoreWebVitalsCard(auditedUrl: result.url),
+        CoreWebVitalsCard(
+          key: ValueKey(result),
+          auditedUrl: result.url,
+          localFetchTimeMs: result.security.responseTimeMs,
+          enabled: widget.source != AuditSource.sample,
+        ),
         const SizedBox(height: 16),
         AuditCardEntry(
           animateIn: _animateCards,
@@ -803,7 +909,11 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
             'Use descriptive anchor text.',
             'Scan a sample of links for dead destinations.',
           ],
-          child: LinksCard(audit: result.linkAudit),
+          child: LinksCard(
+            key: ValueKey(result),
+            audit: result.linkAudit,
+            enabled: widget.source != AuditSource.sample,
+          ),
         ),
         const SizedBox(height: 16),
         if (siteFiles != null)
@@ -820,12 +930,31 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
             ],
             child: SiteFilesCard(report: siteFiles),
           )
-        else
+        else if (widget.siteFilesLoading)
           const LoadingCard(message: 'Checking robots.txt and sitemap.xml…'),
         const SizedBox(height: 16),
+        if (widget.siteFilesError != null)
+          ErrorCard(
+            message: widget.siteFilesError!,
+            onRetry: widget.siteFilesLoading ? null : widget.onRetryFiles,
+          ),
+        if (siteFiles == null &&
+            !widget.siteFilesLoading &&
+            widget.siteFilesError == null)
+          const MessageCard(
+            icon: Icons.cloud_off_outlined,
+            title: 'Site checks unavailable',
+            message: 'These checks were not recorded for this snapshot. Re-audit the page for current results.',
+          ),
+        if (widget.source == AuditSource.live && widget.onRetryFiles != null)
+          TextButton.icon(
+            onPressed: widget.siteFilesLoading ? null : widget.onRetryFiles,
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            label: const Text('Retry site-file checks'),
+          ),
         if (siteFiles != null)
           AIReadinessCard(report: siteFiles.aiReadiness)
-        else
+        else if (widget.siteFilesLoading)
           const LoadingCard(
             message: 'Checking AI crawler access and llms.txt…',
           ),
@@ -871,21 +1000,30 @@ class _PinnedTabsDelegate extends SliverPersistentHeaderDelegate {
 }
 
 /// Scrollable, width-limited container shared by the three tabs.
-class _TabBody extends StatelessWidget {
+class _TabBody extends StatefulWidget {
   const _TabBody({required this.stateKey, required this.child});
 
   final String stateKey;
   final Widget child;
 
   @override
+  State<_TabBody> createState() => _TabBodyState();
+}
+
+class _TabBodyState extends State<_TabBody> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
     return SingleChildScrollView(
-      key: PageStorageKey<String>(stateKey),
+      key: PageStorageKey<String>(widget.stateKey),
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 780),
-          child: child,
+          child: widget.child,
         ),
       ),
     );
@@ -914,7 +1052,7 @@ class _ScoreBreakdown extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'All checks',
+                  'Core score breakdown',
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),

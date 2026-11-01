@@ -11,9 +11,7 @@ SeoScraperService _serviceFor(int statusCode) {
 }
 
 Matcher _throwsKind(SeoErrorKind kind) {
-  return throwsA(
-    isA<SeoScrapeException>().having((e) => e.kind, 'kind', kind),
-  );
+  return throwsA(isA<SeoScrapeException>().having((e) => e.kind, 'kind', kind));
 }
 
 void main() {
@@ -38,9 +36,11 @@ void main() {
   });
 
   test('rejects invalid and unsupported URLs before any request', () async {
-    final service = SeoScraperService(client: MockClient((_) async {
-      fail('HTTP should not be called for invalid URLs');
-    }));
+    final service = SeoScraperService(
+      client: MockClient((_) async {
+        fail('HTTP should not be called for invalid URLs');
+      }),
+    );
 
     await expectLater(
       service.fetchDocument('   '),
@@ -59,7 +59,11 @@ void main() {
         isA<SeoScrapeException>()
             .having((e) => e.kind, 'kind', SeoErrorKind.notFound)
             .having((e) => e.statusCode, 'statusCode', 404)
-            .having((e) => e.userMessage, 'userMessage', contains('Page not found')),
+            .having(
+              (e) => e.userMessage,
+              'userMessage',
+              contains('Page not found'),
+            ),
       ),
     );
   });
@@ -70,7 +74,11 @@ void main() {
       throwsA(
         isA<SeoScrapeException>()
             .having((e) => e.kind, 'kind', SeoErrorKind.serverError)
-            .having((e) => e.userMessage, 'userMessage', contains('server error')),
+            .having(
+              (e) => e.userMessage,
+              'userMessage',
+              contains('server error'),
+            ),
       ),
     );
   });

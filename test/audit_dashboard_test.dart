@@ -3,9 +3,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:html/parser.dart' as html_parser;
 
 import 'package:mobile_seo/screens/audit_dashboard_screen.dart';
+import 'package:mobile_seo/controllers/audit_controller.dart';
 import 'package:mobile_seo/services/seo_audit_service.dart';
 import 'package:mobile_seo/services/seo_scraper_service.dart';
 import 'package:mobile_seo/theme/app_theme.dart';
+
+import 'support/app_harness.dart';
 
 /// Result-state layout checks that run without touching the network.
 SeoAuditResult _result() => const SeoAuditService().analyze(
@@ -31,6 +34,7 @@ SeoAuditResult _result() => const SeoAuditService().analyze(
 
 Widget _app(SeoAuditResult result) {
   final controller = TextEditingController(text: result.url);
+  addTearDown(controller.dispose);
   return MaterialApp(
     theme: AppTheme.build(Brightness.light),
     darkTheme: AppTheme.build(Brightness.dark),
@@ -42,6 +46,7 @@ Widget _app(SeoAuditResult result) {
         errorMessage: null,
         canRetry: true,
         result: result,
+        source: AuditSource.sample,
         siteFiles: null,
         checkedFixes: const {},
         tabIndex: 0,
@@ -86,12 +91,11 @@ void main() {
     await tester.pumpWidget(_app(_result()));
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('Fix checklist'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Fix checklist'));
+    await revealByScrolling(tester, find.text('View fix').first);
+    await tester.tap(find.text('View fix').first);
     await tester.pumpAndSettle();
 
-    expect(find.text('Why it matters'), findsOneWidget);
+    expect(find.text('Evidence'), findsOneWidget);
     expect(find.text('How to improve it'), findsOneWidget);
   });
 }

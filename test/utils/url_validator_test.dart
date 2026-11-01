@@ -17,16 +17,16 @@ void main() {
         '  http://example.com:8080/blog?q=seo#top  ',
       );
 
-      expect(
-        result.uri.toString(),
-        'http://example.com:8080/blog?q=seo#top',
-      );
+      expect(result.uri.toString(), 'http://example.com:8080/blog?q=seo#top');
     });
 
     test('accepts host:port, localhost and IPv4 for development', () {
       expect(UrlValidator.validate('localhost:3000').isValid, isTrue);
       expect(UrlValidator.validate('127.0.0.1:8080').isValid, isTrue);
-      expect(UrlValidator.validate('https://sub.example.co.uk').isValid, isTrue);
+      expect(
+        UrlValidator.validate('https://sub.example.co.uk').isValid,
+        isTrue,
+      );
     });
   });
 
@@ -50,10 +50,7 @@ void main() {
         UrlValidator.validate('ftp://example.com').message,
         'Only http:// and https:// links can be audited.',
       );
-      expect(
-        UrlValidator.validate('javascript:alert(1)').isValid,
-        isFalse,
-      );
+      expect(UrlValidator.validate('javascript:alert(1)').isValid, isFalse);
     });
 
     test('rejects a bare word without a domain', () {

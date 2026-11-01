@@ -26,7 +26,9 @@ void main() {
   });
 
   test('distinguishes a missing alt attribute from an empty one', () {
-    final report = _check('<img src="missing.jpg"><img src="empty.jpg" alt="">');
+    final report = _check(
+      '<img src="missing.jpg"><img src="empty.jpg" alt="">',
+    );
 
     expect(report.missingAltCount, 2);
     expect(report.imagesMissingAlt[0].hasEmptyAlt, isFalse);
@@ -56,7 +58,9 @@ void main() {
   });
 
   test('reports a fully covered page as healthy', () {
-    final report = _check('<img src="a.jpg" alt="One"><img src="b.jpg" alt="Two">');
+    final report = _check(
+      '<img src="a.jpg" alt="One"><img src="b.jpg" alt="Two">',
+    );
 
     expect(report.missingAltCount, 0);
     expect(report.coveragePercent, 100);
