@@ -77,12 +77,16 @@ class _LegalPagesScreenState extends State<LegalPagesScreen>
               'When you run an audit or compare websites, the URLs you enter are used to request and analyze publicly available page content. MobileSEO does not require an account, and the app does not ask for your name or other profile details.',
             ),
             _LegalSection(
+              'Links shared from other apps',
+              'On Android, you can share text or a page link with MobileSEO. The app extracts web URLs on your device and prepares them for an audit. Receiving a shared link does not start a website request; you choose when to run the audit. Unused shared text is not added to your audit history.',
+            ),
+            _LegalSection(
               'How audits work',
               'The app requests pages and related public site files directly from your device, then analyzes the returned HTML and response data. Audit results are processed in the app; they are not sent to a MobileSEO account or audit server.',
             ),
             _LegalSection(
               'On-device workspace and preferences',
-              'Up to 100 audit snapshots, saved project names and URLs, in-progress fixes and appearance/accessibility preferences are saved locally on your device. You can remove projects or individual audits in Projects and clear all audit history in Settings & Help. Clearing history removes comparison evidence; project and preference data are kept. Uninstalling the app or clearing its storage may remove this data. Device backup behavior is controlled by your operating system settings.',
+              'Up to 100 audit snapshots, saved project names and URLs, in-progress fixes, appearance/accessibility preferences, your chosen website platform and guided-audit preference are saved locally on your device. You can remove projects or individual audits in Projects and clear all audit history in Settings & Help. Clearing history removes comparison evidence; project and preference data are kept. Uninstalling the app or clearing its storage may remove this data. Device backup behavior is controlled by your operating system settings.',
             ),
             _LegalSection(
               'Google PageSpeed Insights',

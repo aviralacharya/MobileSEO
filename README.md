@@ -5,6 +5,9 @@ A Flutter app for auditing individual web pages, organizing client projects, tra
 ## App experience
 
 - **Dashboard:** URL validation, cancellable audit stages, early on-page results, independent site-file retries, save recovery, measured and projected scores, prioritized findings, and evidence sheets.
+- **Share to MobileSEO (Android):** share a page from Chrome or another app to prepare an audit. Cold-start and warm shares are supported. A single link fills the URL field; multiple links offer a choice. Receiving a share never starts network traffic or cancels an active audit automatically.
+- **Guided first audit:** contextual Check → Fix guide → Recheck hints use the existing offline sample and real audit evidence. Only an actual later same-page passing check can complete a verified improvement. Hints can be hidden and restored in Settings.
+- **Platform-specific fixes:** bundled WordPress (block editor / Yoast SEO), Shopify and HTML guides for all nine shared findings. The selected platform is remembered. HTML editors preserve drafts while switching guide platforms, and real audits offer a direct published-changes recheck action.
 - **Projects:** saved page URLs, editable names, favorites, in-progress fixes, searchable audit history, date/attention filters, and same-page before/after comparisons.
 - **Tools:** editable search/social previews, competitor comparison, and a bundled offline sample audit.
 - **PageSpeed:** Run PageSpeed opens Google's mobile performance report for the audited URL in the device's default browser, with a copy-link fallback if launching fails.
@@ -46,7 +49,7 @@ flutter analyze
 flutter test
 ```
 
-Tests cover HTML extraction, validation, scoring, projections, verified transitions, storage round trips, serialized mutation races, cancellation/supersession, pending-save recovery, optional network tools, external-browser/share/email calls, license attribution, and narrow-screen workflows with enlarged text in both themes.
+Tests cover HTML extraction, URL/share parsing, cold/warm share delivery, guided fixes and rechecks, validation, scoring, projections, verified transitions, storage round trips, serialized mutation races, cancellation/supersession, pending-save recovery, optional network tools, external-browser/share/email calls, license attribution, and narrow-screen workflows with enlarged text in both themes.
 
 Generate report fixtures for independent visual/text inspection:
 
@@ -70,13 +73,17 @@ Outputs:
 - `build/app/outputs/flutter-apk/app-release.apk`
 - `build/app/outputs/bundle/release/app-release.aab`
 
-If Gradle resolves a junction back to the space-containing SDK path, pass the no-space path explicitly with `-Pflutter.sdk`. A Windows project and Pub cache on different drives can also trigger Kotlin incremental-cache errors; `-Pkotlin.incremental=false` works around that build-tool issue. For example, from `android/` with your own SDK path:
+If Gradle resolves a junction back to the space-containing SDK path, pass the no-space path explicitly with `-Pflutter.sdk`. A Windows project and Pub cache on different drives can also trigger Kotlin incremental-cache errors; `-Pkotlin.incremental=false` works around that build-tool issue. Direct Gradle builds also need `-Ptree-shake-icons=true` to match Flutter's release icon-font shrinking. For example, from `android/` with your own SDK path:
 
 ```powershell
-.\gradlew.bat assembleRelease bundleRelease "-Pflutter.sdk=C:/dev/flutter" "-Pkotlin.incremental=false"
+.\gradlew.bat assembleRelease bundleRelease "-Pflutter.sdk=C:/dev/flutter" "-Pkotlin.incremental=false" "-Ptree-shake-icons=true"
 ```
 
-The checked-in Android project currently uses `com.example.mobile_seo` and the development signing configuration. Configure the application ID, production signing key, and release version in `android/app/build.gradle.kts` / `pubspec.yaml` before publishing a store release. Keep signing secrets outside version control. The launcher artwork is in the platform resource directories; the compact in-app asset is `assets/branding/mobileseo_logo.png`.
+The Android application ID is `abiral.mobile.seo`. Release builds load their signing configuration from `key/key.properties` in the project root. This file contains `storeFile`, `storePassword`, `keyAlias`, and `keyPassword`; `storeFile` is resolved relative to `android/app/`. The local configuration uses `../../key/mobileseo-release.jks` with alias `key 0`. The entire `key/` folder is excluded from Git, and release builds require the signing properties to be present. Set the release version in `pubspec.yaml`. The launcher artwork is in the platform resource directories; the compact in-app asset is `assets/branding/mobileseo_logo.png`.
+
+Release AABs omit embedded native debug-symbol metadata to reduce the store-upload size. Google Play already excludes this metadata from device APKs. All supported processor architectures, app features, bundled fonts, and standard release shrinking are retained.
+
+To produce a diagnostic build with native symbols, append `-PincludeNativeDebugSymbols=true` to the Gradle command. Save the matching symbols before rebuilding the compact release: APK builds also produce `build/app/outputs/native-debug-symbols/release/native-debug-symbols.zip`, and AAB builds embed them under `BUNDLE-METADATA/com.android.tools.build.debugsymbols/`. The ZIP for a separate Play Console symbol upload should contain the architecture directories at its root. Keep symbols together with their matching release and verify that its native library hashes match; older symbol output directories may contain files from a previous build. Retain the matching native-symbol ZIP, R8 `mapping.txt`, and verification records under `release-diagnostics/<version>/`; this directory is excluded from Git and preserved by `flutter clean`. Build-time comparison archives are kept under `build/release-diagnostics/`.
 
 Validate native share-sheet behavior, email-app launching and clipboard fallback, system insets, back navigation, and enlarged system text on a physical device or emulator before distribution. Unit/widget tests mock platform channels.
 
@@ -127,3 +134,11 @@ Browser CORS restrictions can prevent direct audits of other websites. Android/i
 - `tool/generate_branding.py` — regenerates header and launch PNGs from the original logo.
 
 Search Console integration, scheduled audits, and sitemap/multi-page crawling are future extensions. The current workflow is an on-demand, single-page audit workspace.
+
+### Browser sharing and fix guidance
+
+Android handles `ACTION_SEND` for `text/plain` and `text/uri-list` in a `singleTask` `MainActivity`, so warm shares reach the existing Flutter workspace. A small native inbox is drained through `mobile_seo/incoming_share`. Shares received before Flutter starts are retained; notifications received during a drain trigger another pass. Activity recreation restores only unconsumed shares. The URL parser preserves queries, fragments and ports, and handles browser titles and multiple distinct URLs. Returning from a share prepares the Dashboard without dismissing an open editor or report sheet.
+
+Fix guides are bundled in `lib/services/fix_guides.dart` and presented consistently from recommendations, checklist evidence and the corresponding audit cards. They explain changes in the website's editor; MobileSEO does not request CMS credentials or publish changes. The WordPress instructions use the block editor and Yoast SEO where applicable; Shopify metadata instructions follow its admin SEO fields. Menu labels can vary by installed version and theme.
+
+Guide references: [WordPress headings](https://wordpress.org/documentation/article/heading-block/), [WordPress images](https://wordpress.org/documentation/article/image-block/), [Shopify SEO fields](https://help.shopify.com/en/manual/promoting-marketing/seo/adding-keywords), and [Shopify theme SEO](https://shopify.dev/docs/storefronts/themes/seo). These are documentation references, not requests made while exploring the bundled guides.

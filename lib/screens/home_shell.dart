@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../controllers/audit_controller.dart';
@@ -5,6 +7,7 @@ import '../controllers/workspace_controller.dart';
 import '../services/app_settings.dart';
 import '../services/audit_history_service.dart';
 import '../services/audit_review.dart';
+import '../services/incoming_share_service.dart';
 import '../utils/url_validator.dart';
 import '../widgets/project_editor.dart';
 import '../widgets/report_export_sheet.dart';
@@ -25,6 +28,11 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   final _urlController = TextEditingController();
   final _pageController = PageController();
+  final _incomingShares = IncomingShareService();
+  StreamSubscription<SharedPages>? _shareSubscription;
+  SharedPages? _pendingShare;
+  bool _sharedDraft = false;
+  int _inputRevision = 0;
   late final _workspace = widget.workspace ?? WorkspaceController();
   late final _audit = widget.audit ?? AuditController(workspace: _workspace);
   late final _changes = Listenable.merge([_workspace, _audit]);
@@ -39,6 +47,10 @@ class _HomeShellState extends State<HomeShell> {
     super.initState();
     _workspace.load().ignore();
     _audit.addListener(_auditChanged);
+    _shareSubscription = _incomingShares.shares.listen(_receiveShare);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _incomingShares.start().ignore();
+    });
   }
 
   @override
@@ -58,6 +70,8 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   void dispose() {
+    _shareSubscription?.cancel();
+    _incomingShares.dispose();
     _audit.removeListener(_auditChanged);
     if (widget.audit == null) _audit.dispose();
     if (widget.workspace == null) _workspace.dispose();
@@ -94,6 +108,8 @@ class _HomeShellState extends State<HomeShell> {
     setState(() {
       _urlError = null;
       _tabIndex = 0;
+      _sharedDraft = false;
+      _pendingShare = null;
     });
     _selectDestination(0);
   }
@@ -110,6 +126,8 @@ class _HomeShellState extends State<HomeShell> {
     setState(() {
       _urlError = null;
       _tabIndex = 0;
+      _sharedDraft = false;
+      _pendingShare = null;
     });
     await _audit.run(validation.uri!);
   }
@@ -128,8 +146,54 @@ class _HomeShellState extends State<HomeShell> {
     setState(() {
       _tabIndex = 0;
       _urlError = null;
+      _sharedDraft = false;
+      _pendingShare = null;
     });
     _selectDestination(0);
+  }
+
+  void _receiveShare(SharedPages pages) {
+    if (!mounted) return;
+    if (pages.urls.length == 1 && !_audit.running) {
+      _prepareSharedUrl(pages.urls.single);
+    } else {
+      setState(() {
+        _pendingShare = pages;
+        _sharedDraft = false;
+        _inputRevision++;
+        _tabIndex = 0;
+      });
+      _selectDestination(0);
+    }
+    // A shared link must not silently dismiss an editor or report sheet.
+    if (ModalRoute.of(context)?.isCurrent == false) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('A shared link is ready on the Dashboard.'),
+        ),
+      );
+    }
+  }
+
+  void _prepareSharedUrl(Uri url) {
+    _urlController.text = url.toString();
+    setState(() {
+      _urlError = null;
+      _pendingShare = null;
+      _sharedDraft = true;
+      _inputRevision++;
+      _tabIndex = 0;
+    });
+    _selectDestination(0);
+  }
+
+  void _selectSharedUrl(Uri url) {
+    if (_audit.running) {
+      // Only the explicit "Audit shared page" action supersedes an active run.
+      _auditUrl(url.toString());
+    } else {
+      _prepareSharedUrl(url);
+    }
   }
 
   Future<void> _mutate(Future<void> Function() action) async {
@@ -219,8 +283,18 @@ class _HomeShellState extends State<HomeShell> {
                 onOpenHistory: _openHistory,
                 onRetry: _runAudit,
                 onUrlEdited: () {
-                  if (_urlError != null) setState(() => _urlError = null);
+                  if (_urlError != null || _sharedDraft) {
+                    setState(() {
+                      _urlError = null;
+                      _sharedDraft = false;
+                    });
+                  }
                 },
+                inputRevision: _inputRevision,
+                sharedDraft: _sharedDraft,
+                incomingShare: _pendingShare,
+                onSelectShared: _selectSharedUrl,
+                onDismissShared: () => setState(() => _pendingShare = null),
                 onToggleFix: _toggleFix,
                 onResetFixes: _resetFixes,
                 onTabChanged: (index) {

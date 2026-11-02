@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'local_store.dart';
+import 'fix_guides.dart';
 
 class AppSettings extends ChangeNotifier {
   AppSettings({LocalStore? store}) : _store = store ?? PreferencesStore();
@@ -14,6 +15,8 @@ class AppSettings extends ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.system;
   bool _reduceMotion = false;
   bool _haptics = true;
+  bool _showAuditGuide = true;
+  WebsitePlatform _websitePlatform = WebsitePlatform.wordpress;
   bool _disposed = false;
   int _pending = 0;
   Future<void>? _loaded;
@@ -22,6 +25,8 @@ class AppSettings extends ChangeNotifier {
   ThemeMode get themeMode => _themeMode;
   bool get reduceMotion => _reduceMotion;
   bool get haptics => _haptics;
+  bool get showAuditGuide => _showAuditGuide;
+  WebsitePlatform get websitePlatform => _websitePlatform;
   bool get saving => _pending > 0;
 
   void _changed() {
@@ -41,6 +46,11 @@ class AppSettings extends ChangeNotifier {
         );
         _reduceMotion = data['reduceMotion'] == true;
         _haptics = data['haptics'] != false;
+        _showAuditGuide = data['showAuditGuide'] != false;
+        _websitePlatform = WebsitePlatform.values.firstWhere(
+          (value) => value.name == data['websitePlatform'],
+          orElse: () => WebsitePlatform.wordpress,
+        );
       }
     } catch (_) {
       // Defaults keep the app usable if preferences are unavailable.
@@ -52,6 +62,8 @@ class AppSettings extends ChangeNotifier {
     ThemeMode? themeMode,
     bool? reduceMotion,
     bool? haptics,
+    bool? showAuditGuide,
+    WebsitePlatform? websitePlatform,
   }) {
     _pending++;
     _changed();
@@ -60,6 +72,8 @@ class AppSettings extends ChangeNotifier {
       final nextTheme = themeMode ?? _themeMode;
       final nextMotion = reduceMotion ?? _reduceMotion;
       final nextHaptics = haptics ?? _haptics;
+      final nextGuide = showAuditGuide ?? _showAuditGuide;
+      final nextPlatform = websitePlatform ?? _websitePlatform;
       try {
         await _store.write(
           storageKey,
@@ -67,11 +81,15 @@ class AppSettings extends ChangeNotifier {
             'theme': nextTheme.name,
             'reduceMotion': nextMotion,
             'haptics': nextHaptics,
+            'showAuditGuide': nextGuide,
+            'websitePlatform': nextPlatform.name,
           }),
         );
         _themeMode = nextTheme;
         _reduceMotion = nextMotion;
         _haptics = nextHaptics;
+        _showAuditGuide = nextGuide;
+        _websitePlatform = nextPlatform;
       } finally {
         _pending--;
         _changed();

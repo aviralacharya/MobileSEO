@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../services/audit_review.dart';
+import '../services/fix_guides.dart';
 import '../services/seo_audit_service.dart';
 import 'app_sheet.dart';
 import 'app_widgets.dart';
-import 'fix_code_generator.dart';
+import 'fix_guide_section.dart';
 
 class FindingBadge extends StatelessWidget {
   const FindingBadge({super.key, required this.finding});
@@ -44,75 +45,89 @@ class FindingBadge extends StatelessWidget {
 Future<void> showFindingDetails(
   BuildContext context,
   AuditFinding finding,
-  SeoAuditResult result,
-) => AppSheet.show<void>(
-  context: context,
-  builder: (context) => DraggableScrollableSheet(
-    expand: false,
-    initialChildSize: .72,
-    minChildSize: .4,
-    maxChildSize: .94,
-    builder: (context, controller) => ListView(
-      controller: controller,
-      padding: EdgeInsets.fromLTRB(
-        24,
-        0,
-        24,
-        28 + MediaQuery.viewInsetsOf(context).bottom,
-      ),
-      children: [
-        Text(finding.title, style: Theme.of(context).textTheme.headlineSmall),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 10,
-          runSpacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            FindingBadge(finding: finding),
-            Text('${finding.category} · ${finding.effort} estimated'),
-          ],
+  SeoAuditResult result, {
+  bool isSample = false,
+  VoidCallback? onReaudit,
+}) async {
+  final recheck = await AppSheet.show<bool>(
+    context: context,
+    builder: (context) => DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: .72,
+      minChildSize: .4,
+      maxChildSize: .94,
+      builder: (context, controller) => ListView(
+        controller: controller,
+        padding: EdgeInsets.fromLTRB(
+          24,
+          0,
+          24,
+          28 + MediaQuery.viewInsetsOf(context).bottom,
         ),
-        const SizedBox(height: 20),
-        Text('Evidence', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 6),
-        SelectableText(finding.evidence),
-        const SizedBox(height: 10),
-        SelectableText(
-          result.url,
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-        const SizedBox(height: 20),
-        Text(
-          'How to improve it',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        const SizedBox(height: 6),
-        Text(finding.recommendation),
-        const SizedBox(height: 12),
-        Text(
-          finding.scored
-              ? 'This is one of the six core score checks.'
-              : 'This extended diagnostic does not change the core score.',
-        ),
-        const SizedBox(height: 12),
-        const Text(
-          'Make changes on your website, publish, and re-audit this page to verify the result.',
-        ),
-        if (!finding.passed && finding.fixType != null) ...[
-          const SizedBox(height: 24),
-          FixCodeGenerator(
-            type: finding.fixType!,
-            url: result.url,
-            title: result.title ?? '',
-            description: result.description ?? '',
-            image: result.openGraph.image ?? '',
-            schemaTypes: result.schemaTypes,
+        children: [
+          Text(finding.title, style: Theme.of(context).textTheme.headlineSmall),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              FindingBadge(finding: finding),
+              Text('${finding.category} · ${finding.effort} estimated'),
+            ],
           ),
+          const SizedBox(height: 20),
+          Text('Evidence', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 6),
+          SelectableText(finding.evidence),
+          const SizedBox(height: 10),
+          SelectableText(
+            result.url,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'How to improve it',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 6),
+          Text(finding.recommendation),
+          const SizedBox(height: 12),
+          Text(
+            finding.scored
+                ? 'This is one of the six core score checks.'
+                : 'This extended diagnostic does not change the core score.',
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Make changes on your website, publish, and re-audit this page to verify the result.',
+          ),
+          if (FixGuides.supports(finding.id)) ...[
+            const SizedBox(height: 24),
+            FixGuideSection(finding: finding, result: result),
+          ],
+          const SizedBox(height: 24),
+          if (isSample)
+            const Text(
+              'Practice guide · This example is offline. Run an audit of your own page to verify a real change.',
+            )
+          else if (onReaudit != null) ...[
+            const Text(
+              'Published your changes? Recheck this exact URL. A previously failing check is Verified only when the new audit finds it passing.',
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(context, true),
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('I’ve published changes — recheck'),
+            ),
+          ],
         ],
-      ],
+      ),
     ),
-  ),
-);
+  );
+  if (recheck == true) onReaudit?.call();
+}
 
 class FindingCounts extends StatelessWidget {
   const FindingCounts({super.key, required this.findings});
@@ -142,8 +157,13 @@ class FindingCounts extends StatelessWidget {
 }
 
 class TopRecommendations extends StatelessWidget {
-  const TopRecommendations({super.key, required this.result});
+  const TopRecommendations({
+    super.key,
+    required this.result,
+    this.onOpenFinding,
+  });
   final SeoAuditResult result;
+  final ValueChanged<AuditFinding>? onOpenFinding;
   @override
   Widget build(BuildContext context) {
     final findings = reviewAudit(result)
@@ -208,11 +228,13 @@ class TopRecommendations extends StatelessWidget {
                         ],
                       ),
                       TextButton.icon(
-                        onPressed: () => showFindingDetails(
-                          context,
-                          findings[index],
-                          result,
-                        ),
+                        onPressed: () => onOpenFinding != null
+                            ? onOpenFinding!(findings[index])
+                            : showFindingDetails(
+                                context,
+                                findings[index],
+                                result,
+                              ),
                         icon: const Icon(Icons.arrow_forward_rounded, size: 18),
                         label: const Text('View fix'),
                       ),
@@ -239,12 +261,14 @@ class FixChecklist extends StatefulWidget {
     this.onReset,
     this.onReaudit,
     this.readOnly = false,
+    this.onOpenFinding,
   });
   final SeoAuditResult result;
   final Set<String> inProgress, verified;
   final ValueChanged<String> onToggle;
   final VoidCallback? onReset, onReaudit;
   final bool readOnly;
+  final ValueChanged<AuditFinding>? onOpenFinding;
   @override
   State<FixChecklist> createState() => _FixChecklistState();
 }
@@ -344,8 +368,9 @@ class _FixChecklistState extends State<FixChecklist> {
               runSpacing: 4,
               children: [
                 TextButton.icon(
-                  onPressed: () =>
-                      showFindingDetails(context, finding, widget.result),
+                  onPressed: () => widget.onOpenFinding != null
+                      ? widget.onOpenFinding!(finding)
+                      : showFindingDetails(context, finding, widget.result),
                   icon: const Icon(Icons.info_outline_rounded, size: 18),
                   label: const Text('Evidence & fix'),
                 ),

@@ -3,6 +3,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../controllers/workspace_controller.dart';
 import '../services/app_settings.dart';
+import '../services/fix_guides.dart';
 import '../services/pagespeed_insights_service.dart';
 import '../widgets/app_widgets.dart';
 import '../widgets/support_card.dart';
@@ -198,6 +199,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             : (value) => _update(
                                 () => settings.update(haptics: value),
                               ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SectionCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Audit guidance',
+                        style: theme.textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Guided audit hints'),
+                        subtitle: const Text(
+                          'Check a page, open a fix guide, then recheck. Turn this on to show the guide again.',
+                        ),
+                        value: settings.showAuditGuide,
+                        onChanged: settings.saving
+                            ? null
+                            : (value) => _update(
+                                () => settings.update(showAuditGuide: value),
+                              ),
+                      ),
+                      const Divider(height: 24),
+                      const Text('Preferred website platform'),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Used for fix instructions. You can switch inside any guide.',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final platform in WebsitePlatform.values)
+                            ChoiceChip(
+                              label: Text(platform.label),
+                              selected: settings.websitePlatform == platform,
+                              onSelected: settings.saving
+                                  ? null
+                                  : (_) => _update(
+                                      () => settings.update(
+                                        websitePlatform: platform,
+                                      ),
+                                    ),
+                            ),
+                        ],
                       ),
                     ],
                   ),

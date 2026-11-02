@@ -21,6 +21,7 @@
 *.gr.dart
 
 # Symbolication / obfuscation
+/release-diagnostics/
 app.*.symbols
 app.*.map.json
 
@@ -45,6 +46,7 @@ app.*.map.json
 /android/captures/
 /android/local.properties
 /android/key.properties
+/key/
 /android/app/debug/
 /android/app/profile/
 /android/app/release/

@@ -463,10 +463,12 @@ class AuditCardEntry extends StatefulWidget {
     this.schemaTypes = const [],
     this.animateIn = false,
     this.showDetails = true,
+    this.onDetails,
   });
   final String? fixType;
   final bool animateIn;
   final bool showDetails;
+  final VoidCallback? onDetails;
   final String pageUrl, existingTitle, existingDescription, existingImage;
   final List<String> schemaTypes;
   final int index;
@@ -515,6 +517,10 @@ class _AuditCardEntryState extends State<AuditCardEntry> {
     // platforms without haptics, block) the sheet from opening.
     SettingsScope.of(context).feedback();
     if (!mounted) return;
+    if (widget.onDetails != null) {
+      widget.onDetails!();
+      return;
+    }
 
     var fixOpen = false;
 

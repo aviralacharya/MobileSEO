@@ -13,6 +13,14 @@ class _HelpScreenState extends State<HelpScreen> {
   String _query = '';
   static const _faqs = [
     (
+      'How do I share a page from my browser?',
+      'On Android, open a page in your browser, choose Share and select MobileSEO (sometimes under More). A single web URL is placed in the audit field. Tap Run SEO Audit when ready. If several URLs were shared, choose one. An active audit continues until you choose Audit shared page. Other platforms can use the URL field directly.',
+    ),
+    (
+      'How do the guided audit and fix guides work?',
+      'The Dashboard guides you from a page audit to one useful fix and a recheck. Open View fix or Evidence & fix, then choose WordPress, Shopify or HTML. WordPress metadata steps use Yoast SEO; other plugins have similar fields. Publish changes in your website editor, then use the guide’s recheck button. MobileSEO does not edit your website. You can hide the hints and turn them on again under Settings / Audit guidance.',
+    ),
+    (
       'How is the SEO score calculated?',
       'The measured score is the percentage of six core checks that pass: title, description, H1, H2, image alt text and schema presence. Extended indexing, viewport and social checks appear in the issue list but do not change this score. This is an on-page checklist, not a prediction of search rankings.',
     ),
@@ -42,7 +50,7 @@ class _HelpScreenState extends State<HelpScreen> {
     ),
     (
       'Can I try the app without a website?',
-      'Choose Explore sample audit on the Dashboard or in Tools. The bundled example works offline, stays out of your real history and is labeled Sample. Sample fix selections reset when you load the example again.',
+      'Choose Explore sample audit on the Dashboard or in Tools. The bundled example and its platform-specific fix guides work offline and stay out of your real history. Sample results do not change or verify fixes. Sample fix selections reset when you load the example again. Choose Try your own page to start a real audit.',
     ),
   ];
   static const _glossary = [

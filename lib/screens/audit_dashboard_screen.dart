@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../controllers/audit_controller.dart';
 import '../services/app_settings.dart';
 import '../services/audit_review.dart';
+import '../services/incoming_share_service.dart';
 import '../services/seo_audit_service.dart';
 import '../services/audit_history_service.dart';
 import '../services/site_files_checker.dart';
@@ -13,6 +14,8 @@ import '../widgets/app_widgets.dart';
 import '../widgets/audit_history_widgets.dart';
 import '../widgets/audit_cards.dart';
 import '../widgets/fix_checklist.dart';
+import '../widgets/guided_audit_card.dart';
+import '../widgets/shared_pages_card.dart';
 import '../widgets/score_gauge.dart';
 import '../widgets/report_export_sheet.dart';
 import 'audit_comparison_screen.dart';
@@ -58,6 +61,11 @@ class AuditDashboardScreen extends StatefulWidget {
     this.projectName = '',
     this.isSavedProject = false,
     this.canTrackFixes = true,
+    this.inputRevision = 0,
+    this.sharedDraft = false,
+    this.incomingShare,
+    this.onSelectShared,
+    this.onDismissShared,
   });
 
   final TextEditingController urlController;
@@ -65,6 +73,11 @@ class AuditDashboardScreen extends StatefulWidget {
   final String? urlError;
   final String? errorMessage;
   final bool canRetry;
+  final int inputRevision;
+  final bool sharedDraft;
+  final SharedPages? incomingShare;
+  final ValueChanged<Uri>? onSelectShared;
+  final VoidCallback? onDismissShared;
   final SeoAuditResult? result;
   final SiteFilesReport? siteFiles;
 
@@ -106,6 +119,9 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
   late int _reportedIndex;
   late bool _searchExpanded;
   final _outerScroll = ScrollController();
+  final _urlFocus = FocusNode();
+  String? _guidedFindingId, _guidedPage;
+  bool _guidedSample = false;
 
   /// True only for a short window after a fresh audit, so card entrance
   /// animations play once instead of replaying on every tab visit.
@@ -138,6 +154,16 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
         if (mounted && _outerScroll.hasClients) _outerScroll.jumpTo(0);
       });
     }
+    if (widget.inputRevision != oldWidget.inputRevision) {
+      _searchExpanded = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _outerScroll.hasClients) _outerScroll.jumpTo(0);
+      });
+    }
+    if (widget.source == AuditSource.sample &&
+        !identical(oldWidget.result, widget.result)) {
+      _guidedFindingId = _guidedPage = null;
+    }
   }
 
   void _scheduleCardAnimation() {
@@ -154,6 +180,7 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
     _tabs.removeListener(_handleTabChange);
     _tabs.dispose();
     _outerScroll.dispose();
+    _urlFocus.dispose();
     super.dispose();
   }
 
@@ -183,6 +210,63 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
     _reportedIndex = _tabs.index;
     SettingsScope.of(context).feedback();
     widget.onTabChanged(_reportedIndex);
+  }
+
+  Future<void> _hideGuide() async {
+    try {
+      await SettingsScope.of(context).update(showAuditGuide: false);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not save the guide preference. Try again.'),
+          ),
+        );
+      }
+    }
+  }
+
+  void _useOwnPage() {
+    setState(() => _searchExpanded = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_outerScroll.hasClients) _outerScroll.jumpTo(0);
+      _urlFocus.requestFocus();
+    });
+  }
+
+  void _openFinding(AuditFinding finding) {
+    final result = widget.result;
+    if (result == null) return;
+    if (!finding.passed) {
+      setState(() {
+        _guidedFindingId = finding.id;
+        _guidedPage = result.url;
+        _guidedSample = widget.source == AuditSource.sample;
+      });
+    }
+    // Capture this page's callback so later navigation cannot recheck another URL.
+    final recheck = widget.onReaudit;
+    showFindingDetails(
+      context,
+      finding,
+      result,
+      isSample: widget.source == AuditSource.sample,
+      onReaudit: recheck == null
+          ? null
+          : () {
+              if (mounted) recheck();
+            },
+    );
+  }
+
+  void _openFindingId(String id) {
+    final result = widget.result;
+    if (result == null) return;
+    final finding = reviewAudit(result)
+        .where((item) => item.id == id)
+        .firstOrNull;
+    if (finding != null) _openFinding(finding);
   }
 
   @override
@@ -284,7 +368,21 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
 
   Widget _searchArea(BuildContext context) {
     final compact = widget.result != null && !_searchExpanded;
-    return compact ? _compactSearch(context) : _fullSearch(context);
+    final search = compact ? _compactSearch(context) : _fullSearch(context);
+    if (widget.incomingShare == null) return search;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SharedPagesCard(
+          pages: widget.incomingShare!,
+          auditRunning: widget.isLoading,
+          onSelect: widget.onSelectShared ?? (_) {},
+          onDismiss: widget.onDismissShared ?? () {},
+        ),
+        const SizedBox(height: 12),
+        search,
+      ],
+    );
   }
 
   Widget _compactSearch(BuildContext context) {
@@ -370,8 +468,18 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
             ),
           ],
           SizedBox(height: compact ? 10 : 16),
+          if (widget.sharedDraft) ...[
+            Text(
+              'Shared link ready · Run the audit when you’re ready.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.primary,
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
           TextField(
             controller: widget.urlController,
+            focusNode: _urlFocus,
             keyboardType: TextInputType.url,
             enabled: !widget.isLoading,
             textInputAction: TextInputAction.go,
@@ -483,7 +591,14 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
 
   Widget _overviewTab(BuildContext context) {
     final result = widget.result;
+    final settings = SettingsScope.of(context);
     if (result == null) {
+      if (settings.showAuditGuide && widget.phase != AuditPhase.cancelled) {
+        return FirstAuditCard(
+          onSample: widget.onLoadSample,
+          onDismiss: settings.saving ? null : _hideGuide,
+        );
+      }
       return MessageCard(
         icon: Icons.travel_explore_rounded,
         title: widget.phase == AuditPhase.cancelled
@@ -544,6 +659,27 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
               'An offline example to explore. Sample tasks are temporary and stay out of your real projects and history.',
             ),
           ),
+        if (settings.showAuditGuide) ...[
+          const SizedBox(height: 12),
+          GuidedAuditCard(
+            result: result,
+            isSample: widget.source == AuditSource.sample,
+            reviewedFindingId:
+                _guidedPage != null &&
+                    samePage(_guidedPage!, result.url) &&
+                    _guidedSample == (widget.source == AuditSource.sample)
+                ? _guidedFindingId
+                : null,
+            comparison: comparison,
+            onOpenFinding: _openFinding,
+            onUseOwnPage: _useOwnPage,
+            onReaudit: widget.onReaudit,
+            onSaveProject: widget.isSavedProject ? null : widget.onSaveProject,
+            onDismiss: settings.saving ? null : _hideGuide,
+            busy: widget.isLoading,
+          ),
+          const SizedBox(height: 12),
+        ],
         if (widget.saveWarning != null)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
@@ -616,7 +752,10 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
           summary: '',
           why: '',
           steps: const [],
-          child: TopRecommendations(result: result),
+          child: TopRecommendations(
+            result: result,
+            onOpenFinding: _openFinding,
+          ),
         ),
         const SizedBox(height: 16),
         if (comparison != null) ...[
@@ -673,6 +812,7 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
             onReset: widget.onResetFixes,
             onReaudit: widget.isLoading ? null : widget.onReaudit,
             readOnly: !widget.canTrackFixes,
+            onOpenFinding: _openFinding,
           ),
         ),
         const SizedBox(height: 16),
@@ -712,6 +852,7 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
           animateIn: _animateCards,
           index: 0,
           title: 'Meta title',
+          onDetails: () => _openFindingId('Meta title'),
           summary: r.title ?? 'Missing',
           why: 'The title helps people and search engines identify the page in search results.',
           steps: const [
@@ -732,6 +873,7 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
           animateIn: _animateCards,
           index: 1,
           title: 'Meta description',
+          onDetails: () => _openFindingId('Meta description'),
           summary: r.description ?? 'Missing',
           why: 'A useful description explains the page and encourages relevant searchers to visit.',
           steps: const [
@@ -755,6 +897,8 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
           animateIn: _animateCards,
           index: 2,
           title: 'Headings',
+          onDetails: () =>
+              _openFindingId(r.h1Count == 1 ? 'H2 headings' : 'H1 heading'),
           summary: '${r.h1Count} H1 · ${r.h2Count} H2 · ${r.h3Count} H3',
           why: 'Heading structure makes content easier to scan and clarifies its hierarchy.',
           steps: const [
@@ -785,6 +929,7 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
           animateIn: _animateCards,
           index: 4,
           title: 'Image SEO',
+          onDetails: () => _openFindingId('Image SEO'),
           summary:
               '${r.imageReport.totalImages} images · ${r.imageReport.missingAltCount} missing alt',
           why: 'Descriptive alt text supports accessibility and helps search engines understand images.',
@@ -820,6 +965,11 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
           animateIn: _animateCards,
           index: 0,
           title: 'Indexation & identity',
+          onDetails: () => _openFindingId(
+            result.indexation.blocksIndexing
+                ? 'Indexing directives'
+                : 'Mobile viewport',
+          ),
           summary: result.indexation.blocksIndexing
               ? 'Indexing restriction found'
               : result.indexation.canonicalState(result.url),
@@ -852,6 +1002,7 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
           animateIn: _animateCards,
           index: 1,
           title: 'Structured data',
+          onDetails: () => _openFindingId('Schema markup'),
           summary: result.schemaTypes.isNotEmpty
               ? result.schemaTypes.join(', ')
               : result.schemaScripts.isNotEmpty
@@ -880,6 +1031,7 @@ class _AuditDashboardScreenState extends State<AuditDashboardScreen>
           animateIn: _animateCards,
           index: 2,
           title: 'Open Graph tags',
+          onDetails: () => _openFindingId('Social sharing'),
           summary: result.openGraph.isComplete
               ? 'Social preview tags complete'
               : '${result.openGraph.presentCount} of 3 tags present',

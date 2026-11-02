@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_seo/services/app_settings.dart';
+import 'package:mobile_seo/services/fix_guides.dart';
 
 import '../support/test_fixtures.dart';
 
@@ -16,6 +17,7 @@ void main() {
           'theme': 'light',
           'reduceMotion': false,
           'haptics': false,
+          'websitePlatform': 'shopify',
         }),
       });
       final reading = Completer<void>();
@@ -30,13 +32,16 @@ void main() {
       await reading.future;
       final theme = settings.update(themeMode: ThemeMode.dark);
       final motion = settings.update(reduceMotion: true);
+      final guide = settings.update(showAuditGuide: false);
       expect(settings.saving, isTrue);
       release.complete();
-      await Future.wait([load, theme, motion]);
+      await Future.wait([load, theme, motion, guide]);
       expect(settings.saving, isFalse);
       expect(settings.themeMode, ThemeMode.dark);
       expect(settings.reduceMotion, isTrue);
       expect(settings.haptics, isFalse);
+      expect(settings.showAuditGuide, isFalse);
+      expect(settings.websitePlatform, WebsitePlatform.shopify);
       store.beforeRead = null;
       final restored = AppSettings(store: store);
       addTearDown(restored.dispose);
@@ -44,6 +49,8 @@ void main() {
       expect(restored.themeMode, ThemeMode.dark);
       expect(restored.reduceMotion, isTrue);
       expect(restored.haptics, isFalse);
+      expect(restored.showAuditGuide, isFalse);
+      expect(restored.websitePlatform, WebsitePlatform.shopify);
     },
   );
 
@@ -54,15 +61,28 @@ void main() {
       final settings = AppSettings(store: store);
       addTearDown(settings.dispose);
       await expectLater(
-        settings.update(themeMode: ThemeMode.dark),
+        settings.update(
+          themeMode: ThemeMode.dark,
+          showAuditGuide: false,
+          websitePlatform: WebsitePlatform.html,
+        ),
         throwsStateError,
       );
       expect(settings.themeMode, ThemeMode.system);
+      expect(settings.showAuditGuide, isTrue);
+      expect(settings.websitePlatform, WebsitePlatform.wordpress);
       expect(settings.saving, isFalse);
       store.failWrites = false;
-      await settings.update(themeMode: ThemeMode.dark, haptics: false);
+      await settings.update(
+        themeMode: ThemeMode.dark,
+        haptics: false,
+        showAuditGuide: false,
+        websitePlatform: WebsitePlatform.html,
+      );
       expect(settings.themeMode, ThemeMode.dark);
       expect(settings.haptics, isFalse);
+      expect(settings.showAuditGuide, isFalse);
+      expect(settings.websitePlatform, WebsitePlatform.html);
     },
   );
 }

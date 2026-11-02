@@ -52,7 +52,7 @@ Future<AppHarness> pumpTestApp(
   SharedPreferences.setMockInitialValues({});
   PackageInfo.setMockInitialValues(
     appName: 'MobileSEO',
-    packageName: 'com.example.mobile_seo',
+    packageName: 'abiral.mobile.seo',
     version: '1.0.0',
     buildNumber: '1',
     buildSignature: '',
